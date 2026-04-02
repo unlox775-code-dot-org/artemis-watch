@@ -617,11 +617,87 @@ async function fetchFullTrajectory() {
 }
 
 function anchorTrajectory() {
-  // JPL Horizons has no data before ~3.4h post-launch (LEO/TLI phase not modeled).
-  // Anchor start: draw a line from Earth surface to first data point (shows departure direction).
-  const first = WAYPOINTS[0];
-  const firstDir = new THREE.Vector3(first.x, first.y, first.z).normalize();
-  WAYPOINTS.unshift({ t: 0, x: firstDir.x * (EARTH_RADIUS + 200), y: firstDir.y * (EARTH_RADIUS + 200), z: firstDir.z * (EARTH_RADIUS + 200) });
+  // ============================================================
+  // BACKWARD PROPAGATION: Reconstruct pre-Horizons launch trajectory
+  // Horizons starts ~3.4h after launch (post-TLI). We propagate backwards
+  // using 2-body Keplerian dynamics to reconstruct:
+  //   HEO outbound → perigee (burns) → LEO → launch from KSC
+  // ============================================================
+  const GM = 398600.4418; // km³/s², Earth gravitational parameter
+  const firstH = horizonsTrajectory[0]; // has position + velocity
+  if (!firstH || firstH.vx === undefined) {
+    // No velocity data, just anchor to surface
+    const fd = new THREE.Vector3(WAYPOINTS[0].x, WAYPOINTS[0].y, WAYPOINTS[0].z).normalize();
+    WAYPOINTS.unshift({ t: 0, x: fd.x*(EARTH_RADIUS+200), y: fd.y*(EARTH_RADIUS+200), z: fd.z*(EARTH_RADIUS+200) });
+  } else {
+    // Backward propagation from first Horizons point
+    let rx = firstH.x, ry = firstH.y, rz = firstH.z;
+    let vx = firstH.vx, vy = firstH.vy, vz = firstH.vz;
+    let tH = firstH.t; // hours after launch
+    const dt = -10; // seconds, backward
+    const preLaunchPts = [];
+
+    // Phase 1: Propagate backwards on the HEO until we reach perigee (<250km altitude)
+    let lastAlt = Math.sqrt(rx*rx + ry*ry + rz*rz) - EARTH_RADIUS;
+    let prevAlt = lastAlt;
+    while (tH > 0 && lastAlt > 200) {
+      const r = Math.sqrt(rx*rx + ry*ry + rz*rz);
+      const a = -GM / (r*r*r);
+      // Velocity Verlet backward step
+      const ax = a*rx, ay = a*ry, az = a*rz;
+      vx += ax*dt; vy += ay*dt; vz += az*dt;
+      rx += vx*dt; ry += vy*dt; rz += vz*dt;
+      tH += dt/3600;
+      lastAlt = Math.sqrt(rx*rx + ry*ry + rz*rz) - EARTH_RADIUS;
+      // Sample every ~30 seconds
+      if (preLaunchPts.length === 0 || (preLaunchPts[preLaunchPts.length-1].t - tH) > 0.008) {
+        preLaunchPts.push({ t: tH, x: rx, y: ry, z: rz });
+      }
+      if (lastAlt > prevAlt && lastAlt < 1000) break; // ascending from perigee, stop
+      prevAlt = lastAlt;
+    }
+
+    // Phase 2: At perigee of HEO (~185km), switch to circular LEO
+    // LEO orbit: keep same position, compute circular velocity
+    const rLeo = Math.sqrt(rx*rx + ry*ry + rz*rz);
+    const vCirc = Math.sqrt(GM / rLeo); // circular orbit speed
+    // Orbit plane normal from current position and velocity
+    const hx = ry*vz - rz*vy, hy = rz*vx - rx*vz, hz = rx*vy - ry*vx;
+    const hMag = Math.sqrt(hx*hx + hy*hy + hz*hz);
+    const hnx = hx/hMag, hny = hy/hMag, hnz = hz/hMag;
+    // Tangential direction (perpendicular to r in orbit plane, prograde)
+    const rMag = Math.sqrt(rx*rx + ry*ry + rz*rz);
+    const rnx = rx/rMag, rny = ry/rMag, rnz = rz/rMag;
+    // Prograde tangent = h × r_hat
+    let tx = hny*rnz - hnz*rny, ty = hnz*rnx - hnx*rnz, tz = hnx*rny - hny*rnx;
+    const tMag = Math.sqrt(tx*tx + ty*ty + tz*tz);
+    tx /= tMag; ty /= tMag; tz /= tMag;
+    // Set circular velocity
+    vx = -tx * vCirc; vy = -ty * vCirc; vz = -tz * vCirc; // negative because going backward
+
+    // Continue backward on LEO for ~1.5 orbits (until reaching KSC longitude)
+    const leoPeriodSec = 2 * Math.PI * Math.sqrt(rLeo*rLeo*rLeo / GM);
+    const leoSteps = Math.ceil(1.8 * leoPeriodSec / Math.abs(dt)); // ~1.8 orbits worth
+    for (let step = 0; step < leoSteps && tH > -0.1; step++) {
+      const r = Math.sqrt(rx*rx + ry*ry + rz*rz);
+      const a = -GM / (r*r*r);
+      vx += a*rx*dt; vy += a*ry*dt; vz += a*rz*dt;
+      rx += vx*dt; ry += vy*dt; rz += vz*dt;
+      tH += dt/3600;
+      if (step % 3 === 0) {
+        preLaunchPts.push({ t: tH, x: rx, y: ry, z: rz });
+      }
+    }
+
+    // Sort pre-launch points chronologically and prepend to WAYPOINTS
+    preLaunchPts.sort((a,b) => a.t - b.t);
+    // Filter out points before t=0 (before launch) but keep a small buffer
+    const filtered = preLaunchPts.filter(p => p.t >= -0.05);
+    // Set t=0 for the first point (launch)
+    if (filtered.length > 0) filtered[0].t = 0;
+    WAYPOINTS = filtered.concat(WAYPOINTS);
+  }
+
   // Anchor return to Earth surface
   const last = WAYPOINTS[WAYPOINTS.length - 1];
   const lastDir = new THREE.Vector3(last.x, last.y, last.z).normalize();
@@ -1278,22 +1354,27 @@ let groundTrackTime = 0;
 function computeGroundTrack(metHours) {
   const maxT = WAYPOINTS[WAYPOINTS.length - 1].t;
   const minT = WAYPOINTS[0].t;
+  const TRACK_HOURS = 48; // ±2 days
   const past = [], future = [];
 
-  // Past 6 hours
-  for (let i = 0; i <= 90; i++) {
-    const t = metHours - 6 + (6 * i / 90);
+  // Past 2 days (sample every ~10 min for detail)
+  const pastPts = Math.min(300, Math.round(TRACK_HOURS * 6));
+  for (let i = 0; i <= pastPts; i++) {
+    const t = metHours - TRACK_HOURS + (TRACK_HOURS * i / pastPts);
     if (t < minT || t > maxT) continue;
     const pt = getSubPoint(t);
-    past.push({ ...pt, age: (metHours - t) / 6 }); // age: 0 (now) to 1 (6h ago)
+    const day = Math.min(9, Math.max(0, Math.floor(t / 24)));
+    past.push({ ...pt, t, age: (metHours - t) / TRACK_HOURS, day });
   }
 
-  // Future 6 hours
-  for (let i = 0; i <= 90; i++) {
-    const t = metHours + (6 * i / 90);
+  // Future 2 days
+  const futurePts = Math.min(300, Math.round(TRACK_HOURS * 6));
+  for (let i = 0; i <= futurePts; i++) {
+    const t = metHours + (TRACK_HOURS * i / futurePts);
     if (t < minT || t > maxT) continue;
     const pt = getSubPoint(t);
-    future.push({ ...pt, age: (t - metHours) / 6 }); // age: 0 (now) to 1 (6h ahead)
+    const day = Math.min(9, Math.max(0, Math.floor(t / 24)));
+    future.push({ ...pt, t, age: (t - metHours) / TRACK_HOURS, day });
   }
 
   return { past, future };
