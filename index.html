@@ -345,9 +345,9 @@ function getSubPoint(tHours) {
   if (distEC < 1) return { lat: 0, lon: 0 };
   const lat = Math.asin(Math.min(1, Math.max(-1, pos.z / distEC))) * 180 / Math.PI;
   const lon = Math.atan2(pos.y, pos.x) * 180 / Math.PI;
-  const metMs = tHours * 3600000;
-  const earthRotDeg = (metMs / 86400000) * 360;
-  const adjLon = ((lon - earthRotDeg) % 360 + 540) % 360 - 180;
+  const date = new Date(LAUNCH_UTC.getTime() + tHours * 3600000);
+  const gmstDeg = getGMST(date) * 180 / Math.PI;
+  const adjLon = ((lon - gmstDeg) % 360 + 540) % 360 - 180;
   return { lat, lon: adjLon };
 }
 
@@ -789,8 +789,8 @@ function getMissionState() {
 
   const lat = Math.asin(Math.min(1,Math.max(-1,pos.z/distEC))) * 180/Math.PI;
   const lon = Math.atan2(pos.y, pos.x) * 180/Math.PI;
-  const earthRotDeg = (metMs/86400000)*360;
-  const adjLon = ((lon - earthRotDeg) % 360 + 540) % 360 - 180;
+  const gmstDeg = getGMST(now) * 180 / Math.PI;
+  const adjLon = ((lon - gmstDeg) % 360 + 540) % 360 - 180;
 
   let phase = PHASES[PHASES.length-1];
   for (const p of PHASES) { if (metHours >= p.start && metHours < p.end) { phase = p; break; } }
@@ -1284,9 +1284,9 @@ function animate() {
   moonGroup.scale.setScalar(MOON_RADIUS * bs);
   moonGroup.position.copy(state.moonPos);
 
-  // Earth sidereal rotation
+  // Earth sidereal rotation (GMST gives angle of Greenwich from vernal equinox)
   const gmst = getGMST(new Date());
-  earthMainMesh.rotation.y = gmst - Math.PI / 2;
+  earthMainMesh.rotation.y = gmst;
 
   // Sun position update
   const sunPos = getSunPosition(new Date());
