@@ -1043,12 +1043,8 @@ function getMissionState() {
   const metHours = metMs / 3600000;
   let pos, speedKms;
 
-  if (liveData) {
-    pos = new THREE.Vector3(liveData.x, liveData.y, liveData.z);
-    speedKms = Math.sqrt(liveData.vx**2 + liveData.vy**2 + liveData.vz**2);
-  } else {
-    pos = interpolateTrajectory(metHours);
-  }
+  // Always interpolate trajectory for smooth real-time updates
+  pos = interpolateTrajectory(metHours);
 
   const mPos = moonPosition(metHours);
 
