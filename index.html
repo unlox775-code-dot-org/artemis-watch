@@ -585,6 +585,7 @@ async function fetchFullTrajectory() {
         buildTrajectoryLine();
         buildMoonOrbitLine();
         initCameraOrientation();
+        computeGraphData();
         document.getElementById('last-fetch').textContent = `Trajectory: ${entries.length} pts from JPL`;
       }
     }
@@ -1761,6 +1762,17 @@ function animate() {
 
   document.getElementById('phase-name').textContent = state.phase.name;
   document.getElementById('phase-desc').textContent = state.phase.desc;
+
+  // Redraw open graphs (~10fps)
+  if (!animate._graphFrame) animate._graphFrame = 0;
+  if (animate._graphFrame++ % 6 === 0 && graphData) {
+    document.querySelectorAll('.telem-graph.open').forEach(g => {
+      const canvas = g.querySelector('canvas');
+      const type = g.id.replace('graph-', '');
+      const data = graphData[type];
+      if (data) drawGraph(canvas, data, state.metHours, uf);
+    });
+  }
 
   // Day timeline
   for (let d = 1; d <= 10; d++) {
