@@ -1003,10 +1003,10 @@ for (let d = 1; d <= 10; d++) {
 // ============================================================
 // CAMERA DRAG CONTROLS
 // ============================================================
-const BASE_AZIMUTH = 167.0 * Math.PI / 180; // AZ 287.1° - 120° CCW = ~167°
+const BASE_AZIMUTH = 0; // From +Z direction: trajectory X-extent maps to screen horizontal
 const BASE_ELEVATION = 0.10; // ~5.7° — slight tilt above orbital plane (user had ~2.9°)
 let isDragging = false;
-let dragAzimuth = BASE_AZIMUTH, dragElevation = BASE_ELEVATION;
+let dragAzimuth = BASE_AZIMUTH, dragElevation = 0.35;
 let lastDragTime = 0;
 let dragStartX = 0, dragStartY = 0, dragAzStart = 0, dragElStart = 0;
 const DRAG_PAUSE_DURATION = 60; // seconds
@@ -1374,7 +1374,7 @@ function animate() {
     // Side-to-side Lissajous wobble
     const wobbleT = t * (Math.PI * 2 / 30); // 30-second full loop
     camAz = BASE_AZIMUTH + Math.sin(wobbleT) * 0.8;      // wide horizontal sweep around base angle
-    camEl = BASE_ELEVATION + Math.sin(wobbleT * 2) * 0.05; // slight vertical oscillation around base
+    camEl = 0.35 + Math.sin(wobbleT * 2) * 0.05; // ~20° with slight oscillation
     angleDisplay.style.display = 'none';
   }
 
