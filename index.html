@@ -577,43 +577,47 @@ async function fetchFullTrajectory() {
     // Main trajectory at 30-min resolution
     const params = new URLSearchParams({
       format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
-      START_TIME:"'2026-04-01 23:00'", STOP_TIME:"'2026-04-12 06:00'",
+      START_TIME:"'2026-04-02 01:00'", STOP_TIME:"'2026-04-12 06:00'",
       STEP_SIZE:"'30 min'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
     });
     const json = await horizonsFetch(params.toString());
     if (json.result) {
       let entries = parseHorizonsVectors(json.result);
       if (entries.length > 20) {
-        // Also fetch fine resolution near periapsis (Day 1→2 close approach)
-        try {
-          const fineParams = new URLSearchParams({
-            format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
-            START_TIME:"'2026-04-02 21:00'", STOP_TIME:"'2026-04-03 03:00'",
-            STEP_SIZE:"'5 min'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
-          });
-          const fineJson = await horizonsFetch(fineParams.toString());
-          if (fineJson.result) {
-            const fineEntries = parseHorizonsVectors(fineJson.result);
-            if (fineEntries.length > 5) {
-              // Merge: remove coarse points in the fine-data range, insert fine points
-              const fineStart = fineEntries[0].t, fineEnd = fineEntries[fineEntries.length-1].t;
-              entries = entries.filter(e => e.t < fineStart || e.t > fineEnd).concat(fineEntries);
-              entries.sort((a,b) => a.t - b.t);
-            }
-          }
-        } catch(e) { console.warn('Fine periapsis fetch failed:', e.message); }
-
-        horizonsTrajectory = entries;
-        WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
-        anchorTrajectory();
-        buildTrajectoryLine();
-        buildMoonOrbitLine();
-        initCameraOrientation();
-        computeGraphData();
-        document.getElementById('last-fetch').textContent = `Trajectory: ${entries.length} pts from JPL`;
+        await applyTrajectoryData(entries);
       }
     }
   } catch(e) { console.warn('Full trajectory fetch failed:', e.message, e); }
+}
+
+async function applyTrajectoryData(entries) {
+  // Fetch fine resolution near periapsis (Day 1→2 close approach)
+  try {
+    const fineParams = new URLSearchParams({
+      format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
+      START_TIME:"'2026-04-02 21:00'", STOP_TIME:"'2026-04-03 03:00'",
+      STEP_SIZE:"'5 min'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
+    });
+    const fineJson = await horizonsFetch(fineParams.toString());
+    if (fineJson.result) {
+      const fineEntries = parseHorizonsVectors(fineJson.result);
+      if (fineEntries.length > 5) {
+        const fineStart = fineEntries[0].t, fineEnd = fineEntries[fineEntries.length-1].t;
+        entries = entries.filter(e => e.t < fineStart || e.t > fineEnd).concat(fineEntries);
+        entries.sort((a,b) => a.t - b.t);
+        console.log('Fine periapsis data merged:', fineEntries.length, 'fine pts');
+      }
+    }
+  } catch(e) { console.warn('Fine periapsis fetch failed:', e.message); }
+
+  horizonsTrajectory = entries;
+  WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
+  anchorTrajectory();
+  buildTrajectoryLine();
+  buildMoonOrbitLine();
+  initCameraOrientation();
+  computeGraphData();
+  console.log('Trajectory applied:', entries.length, 'Horizons pts +', WAYPOINTS.length - entries.length, 'propagated');
 }
 
 function anchorTrajectory() {
@@ -722,14 +726,7 @@ async function fetchFullTrajectoryRetry() {
       if (json.result) {
         const entries = parseHorizonsVectors(json.result);
         if (entries.length > 10) {
-          horizonsTrajectory = entries;
-          WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
-          anchorTrajectory();
-          buildTrajectoryLine();
-          buildMoonOrbitLine();
-          initCameraOrientation();
-          computeGraphData();
-          document.getElementById('last-fetch').textContent = `Traj: ${entries.length}pts JPL`;
+          await applyTrajectoryData(entries);
           console.log('Full trajectory loaded (2h):', entries.length, 'points');
         }
       }
