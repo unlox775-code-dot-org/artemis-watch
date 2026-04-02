@@ -565,8 +565,8 @@ async function fetchFullTrajectory() {
   try {
     const params = new URLSearchParams({
       format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
-      START_TIME:"'2026-04-02 02:00'", STOP_TIME:"'2026-04-10 23:00'",
-      STEP_SIZE:"'1 h'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
+      START_TIME:"'2026-04-01 23:00'", STOP_TIME:"'2026-04-12 06:00'",
+      STEP_SIZE:"'30 min'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
     });
     const json = await horizonsFetch(params.toString());
     if (json.result) {
@@ -574,14 +574,52 @@ async function fetchFullTrajectory() {
       if (entries.length > 20) {
         horizonsTrajectory = entries;
         WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
-        // Anchor trajectory to Earth's surface at launch and return
-        const first = WAYPOINTS[0];
-        const firstDir = new THREE.Vector3(first.x, first.y, first.z).normalize();
-        WAYPOINTS.unshift({ t: 0, x: firstDir.x*EARTH_RADIUS, y: firstDir.y*EARTH_RADIUS, z: firstDir.z*EARTH_RADIUS });
-        const last = WAYPOINTS[WAYPOINTS.length-1];
+
+        // Synthesize LEO orbit before first Horizons data point
+        const firstT = WAYPOINTS[0].t;
+        if (firstT > 0.5) {
+          // LEO at ~200km altitude, ~90min period
+          const leoR = EARTH_RADIUS + 200;
+          const leoPeriod = 1.5; // hours for one orbit
+          const leoOmega = 2 * Math.PI / leoPeriod; // rad/hour
+          // Figure out what angular position connects to the first data point
+          const fp = new THREE.Vector3(WAYPOINTS[0].x, WAYPOINTS[0].y, WAYPOINTS[0].z);
+          const fpDir = fp.clone().normalize();
+          // Orbit is roughly in the plane of the first data point and Earth's center
+          // Compute an orbit plane normal from the first two data points
+          const sp = new THREE.Vector3(WAYPOINTS[1].x, WAYPOINTS[1].y, WAYPOINTS[1].z);
+          const orbitNormal = new THREE.Vector3().crossVectors(fp, sp).normalize();
+          const orbitX = fpDir.clone();
+          const orbitY = new THREE.Vector3().crossVectors(orbitNormal, orbitX).normalize();
+          // Angle of first point in orbit plane
+          const endAngle = Math.atan2(fp.dot(orbitY), fp.dot(orbitX));
+          // Generate LEO points from launch (t=0) to just before firstT
+          const nLeoPoints = Math.max(20, Math.round(firstT / 0.05));
+          const leoPoints = [];
+          for (let i = 0; i <= nLeoPoints; i++) {
+            const tFrac = i / nLeoPoints;
+            const tH = tFrac * firstT;
+            // Spiral from LEO radius to actual first-point distance
+            const rFrac = tFrac * tFrac; // quadratic ramp
+            const r = leoR + (fp.length() - leoR) * rFrac;
+            // Angle: sweep ~1.5 orbits worth plus arrive at endAngle
+            const totalSweep = 1.5 * 2 * Math.PI; // ~1.5 LEO orbits
+            const angle = endAngle - totalSweep * (1 - tFrac);
+            const x = r * (Math.cos(angle) * orbitX.x + Math.sin(angle) * orbitY.x);
+            const y = r * (Math.cos(angle) * orbitX.y + Math.sin(angle) * orbitY.y);
+            const z = r * (Math.cos(angle) * orbitX.z + Math.sin(angle) * orbitY.z);
+            leoPoints.push({ t: tH, x, y, z });
+          }
+          // Remove last LEO point (it overlaps with first Horizons point)
+          leoPoints.pop();
+          WAYPOINTS = leoPoints.concat(WAYPOINTS);
+        }
+
+        // Anchor return trajectory to Earth surface
+        const last = WAYPOINTS[WAYPOINTS.length - 1];
         const lastDir = new THREE.Vector3(last.x, last.y, last.z).normalize();
-        const endT = last.t + 2; // ~2 hours after last data point
-        WAYPOINTS.push({ t: endT, x: lastDir.x*EARTH_RADIUS, y: lastDir.y*EARTH_RADIUS, z: lastDir.z*EARTH_RADIUS });
+        const endT = last.t + 2;
+        WAYPOINTS.push({ t: endT, x: lastDir.x * EARTH_RADIUS, y: lastDir.y * EARTH_RADIUS, z: lastDir.z * EARTH_RADIUS });
         buildTrajectoryLine();
         buildMoonOrbitLine();
         initCameraOrientation();
@@ -1587,9 +1625,13 @@ function animate() {
   earthGroup.scale.setScalar(EARTH_RADIUS * bs);
   moonGroup.scale.setScalar(MOON_RADIUS * bs);
   // In to-scale mode, shrink atmosphere glow so it doesn't visually clip near-Earth orbits
-  const atmoScale = toScale ? 0.5 : 1;
-  earthAtmo1.scale.setScalar(1 + (0.04 * atmoScale));
-  earthAtmo2.scale.setScalar(1 + (0.15 * atmoScale));
+  if (toScale) {
+    earthAtmo1.scale.setScalar(1.005);
+    earthAtmo2.scale.setScalar(1.01);
+  } else {
+    earthAtmo1.scale.setScalar(1.04);
+    earthAtmo2.scale.setScalar(1.15);
+  }
   moonGroup.position.copy(state.moonPos);
 
   // Earth sidereal rotation (GMST gives angle of Greenwich from vernal equinox)
