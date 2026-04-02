@@ -144,8 +144,8 @@
 <body>
 <canvas id="three-canvas"></canvas>
 
-<div id="earth-label" class="body-label" style="position:fixed;z-index:5;pointer-events:none;font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:#4da6ff;letter-spacing:3px;text-shadow:0 0 12px rgba(77,166,255,0.6);transform:translate(-50%,-100%);">EARTH</div>
-<div id="moon-label" class="body-label" style="position:fixed;z-index:5;pointer-events:none;font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:#aabbcc;letter-spacing:3px;text-shadow:0 0 10px rgba(170,187,204,0.5);transform:translate(-50%,-100%);">MOON</div>
+<div id="earth-label" class="body-label" style="position:fixed;z-index:5;pointer-events:none;font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:#4da6ff;letter-spacing:3px;text-shadow:0 0 12px rgba(77,166,255,0.6);transform:translate(-100%,0);">EARTH</div>
+<div id="moon-label" class="body-label" style="position:fixed;z-index:5;pointer-events:none;font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:#aabbcc;letter-spacing:3px;text-shadow:0 0 10px rgba(170,187,204,0.5);transform:translate(-100%,0);">MOON</div>
 <div id="sc-marker">
   <div class="sc-ring2"></div>
   <div class="sc-ring"></div>
@@ -1378,21 +1378,28 @@ function animate() {
     scEl.style.left = scProj.x+'px'; scEl.style.top = scProj.y+'px'; scEl.style.display = 'block';
   } else { scEl.style.display = 'none'; }
 
-  // Earth label
+  // Earth label — up and to the left of the sphere so it doesn't obscure it
+  const earthCenter = projectToScreen(new THREE.Vector3(0, 0, 0));
   const earthBS = EARTH_RADIUS * bs;
-  const earthProj = projectToScreen(new THREE.Vector3(0, -earthBS*1.3, 0));
+  const earthEdge = projectToScreen(new THREE.Vector3(earthBS, 0, 0));
+  const earthScreenR = Math.abs(earthEdge.x - earthCenter.x) || 20;
   const earthLbl = document.getElementById('earth-label');
-  if (earthProj.visible && showLabels) {
-    earthLbl.style.left = earthProj.x+'px'; earthLbl.style.top = earthProj.y+'px'; earthLbl.style.display = 'block';
+  if (earthCenter.visible && showLabels) {
+    earthLbl.style.left = (earthCenter.x - earthScreenR * 0.7) + 'px';
+    earthLbl.style.top = (earthCenter.y - earthScreenR - 8) + 'px';
+    earthLbl.style.display = 'block';
   } else { earthLbl.style.display = 'none'; }
 
-  // Moon label
+  // Moon label — up and to the left
   const moonBS = MOON_RADIUS * bs;
-  const moonLblPos = new THREE.Vector3(state.moonPos.x, state.moonPos.y - moonBS*1.5, state.moonPos.z);
-  const moonProj = projectToScreen(moonLblPos);
+  const moonCenter = projectToScreen(state.moonPos);
+  const moonEdge = projectToScreen(new THREE.Vector3(state.moonPos.x + moonBS, state.moonPos.y, state.moonPos.z));
+  const moonScreenR = Math.abs(moonEdge.x - moonCenter.x) || 15;
   const moonLbl = document.getElementById('moon-label');
-  if (moonProj.visible && showLabels) {
-    moonLbl.style.left = moonProj.x+'px'; moonLbl.style.top = moonProj.y+'px'; moonLbl.style.display = 'block';
+  if (moonCenter.visible && showLabels) {
+    moonLbl.style.left = (moonCenter.x - moonScreenR * 0.7) + 'px';
+    moonLbl.style.top = (moonCenter.y - moonScreenR - 8) + 'px';
+    moonLbl.style.display = 'block';
   } else { moonLbl.style.display = 'none'; }
 
   // Planet labels (update every ~10 frames for performance)
