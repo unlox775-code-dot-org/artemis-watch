@@ -506,18 +506,23 @@ function interpolateTrajectory(tHours) {
     if (t >= WAYPOINTS[j].t && t <= WAYPOINTS[j+1].t) { i = j; break; }
   }
   const frac = (t - WAYPOINTS[i].t) / (WAYPOINTS[i+1].t - WAYPOINTS[i].t || 1);
+  // Use linear interpolation near Earth (within 15000km) to prevent spline overshoot at periapsis
+  const d1 = Math.sqrt(WAYPOINTS[i].x**2 + WAYPOINTS[i].y**2 + WAYPOINTS[i].z**2);
+  const d2 = Math.sqrt(WAYPOINTS[Math.min(i+1,WAYPOINTS.length-1)].x**2 + WAYPOINTS[Math.min(i+1,WAYPOINTS.length-1)].y**2 + WAYPOINTS[Math.min(i+1,WAYPOINTS.length-1)].z**2);
+  if (d1 < 15000 || d2 < 15000) {
+    const w = WAYPOINTS[i], w2 = WAYPOINTS[Math.min(i+1, WAYPOINTS.length-1)];
+    return new THREE.Vector3(
+      w.x + (w2.x - w.x) * frac,
+      w.y + (w2.y - w.y) * frac,
+      w.z + (w2.z - w.z) * frac
+    );
+  }
   const i0 = Math.max(0,i-1), i1 = i, i2 = Math.min(WAYPOINTS.length-1,i+1), i3 = Math.min(WAYPOINTS.length-1,i+2);
-  const pos = new THREE.Vector3(
+  return new THREE.Vector3(
     catmullRom(WAYPOINTS[i0].x, WAYPOINTS[i1].x, WAYPOINTS[i2].x, WAYPOINTS[i3].x, frac),
     catmullRom(WAYPOINTS[i0].y, WAYPOINTS[i1].y, WAYPOINTS[i2].y, WAYPOINTS[i3].y, frac),
     catmullRom(WAYPOINTS[i0].z, WAYPOINTS[i1].z, WAYPOINTS[i2].z, WAYPOINTS[i3].z, frac)
   );
-  // Clamp: don't let spline overshoot inside Earth's surface
-  const dist = pos.length();
-  if (dist < EARTH_RADIUS + 150 && dist > 0) {
-    pos.multiplyScalar((EARTH_RADIUS + 150) / dist);
-  }
-  return pos;
 }
 
 const GM_EARTH = 398600;
