@@ -201,8 +201,8 @@
 </div>
 
 <div id="controls">
-  <button class="ctrl-btn" id="btn-scale" onclick="toggleScale()">TO SCALE</button>
-  <button class="ctrl-btn" id="btn-labels" onclick="toggleLabels()">LABELS</button>
+  <button class="ctrl-btn active" id="btn-scale" onclick="toggleScale()">EXAGGERATED</button>
+  <button class="ctrl-btn active" id="btn-labels" onclick="toggleLabels()">LABELS</button>
   <button class="ctrl-btn active" id="btn-units" onclick="toggleUnits()">MILES</button>
 </div>
 
@@ -1085,8 +1085,8 @@ function initCameraOrientation() {
   // Camera looks from a direction perpendicular to trajectory, slightly above orbital plane
   // "Right" in orbit plane, perpendicular to trajectory
   const viewBase = new THREE.Vector3().crossVectors(trajDir, orbNormal).normalize();
-  // Tilt ~3° above orbital plane for a nearly ecliptic view
-  const elevRad = 0.05; // ~3°
+  // Tilt ~20° above orbital plane (AZ ~290° feel)
+  const elevRad = 0.35; // ~20°
   camDir.copy(viewBase).multiplyScalar(Math.cos(elevRad));
   camDir.addScaledVector(orbNormal, Math.sin(elevRad));
   camDir.normalize();
@@ -1339,12 +1339,11 @@ function formatNum(n) {
 let showLabels = true;
 window.toggleScale = function() {
   toScale = !toScale;
-  document.getElementById('btn-scale').classList.toggle('active', toScale);
-  document.getElementById('btn-scale').textContent = toScale ? 'EXAGGERATED' : 'TO SCALE';
+  document.getElementById('btn-scale').textContent = toScale ? 'TO SCALE' : 'EXAGGERATED';
 };
 window.toggleLabels = function() {
   showLabels = !showLabels;
-  document.getElementById('btn-labels').classList.toggle('active', !showLabels);
+  document.getElementById('btn-labels').classList.toggle('active', showLabels);
   document.getElementById('sc-marker').querySelector('.sc-label-tag').style.display = showLabels ? '' : 'none';
 };
 window.toggleUnits = function() {
