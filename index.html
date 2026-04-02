@@ -424,7 +424,13 @@ async function fetchCurrentPosition() {
   }
 }
 
-fetchFullTrajectoryRetry().then(() => fetchCurrentPosition());
+// Expose for debugging
+window._debug = { get hz() { return horizonsTrajectory; }, get wp() { return WAYPOINTS; }, get live() { return liveData; } };
+
+fetchFullTrajectoryRetry().then(() => {
+  console.log('Trajectory fetch done. horizonsTrajectory:', horizonsTrajectory ? horizonsTrajectory.length + ' pts' : 'null');
+  fetchCurrentPosition();
+});
 setInterval(fetchCurrentPosition, 15*60*1000);
 
 // ============================================================
