@@ -1598,6 +1598,8 @@ window.toggleUnits = function() {
   const btn = document.getElementById('btn-units');
   btn.textContent = useMiles ? 'MILES' : 'KM';
   btn.classList.toggle('active', true);
+  // Force immediate ticker refresh
+  if (animate._tickerFrame) animate._tickerFrame = 299;
 };
 
 // ============================================================
