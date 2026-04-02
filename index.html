@@ -121,6 +121,24 @@
   /* Crew */
   #crew { position: fixed; right: 28px; top: 275px; z-index: 10; font-size: 11px; color: #4a6a8a; line-height: 1.7; }
   #crew strong { color: #6a9abb; }
+
+  /* Angle display overlay */
+  #angle-display {
+    position: fixed; top: 58px; left: 50%; transform: translateX(-50%); z-index: 10;
+    background: rgba(0,15,40,0.88); border: 1px solid rgba(80,160,255,0.3);
+    border-radius: 6px; padding: 6px 16px;
+    font-family: 'Share Tech Mono', monospace; font-size: 13px;
+    color: #4da6ff; letter-spacing: 1px; backdrop-filter: blur(12px);
+    display: none; pointer-events: none;
+  }
+
+  /* Planet labels */
+  .planet-label {
+    position: fixed; z-index: 5; pointer-events: none;
+    font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 700;
+    letter-spacing: 2px; text-shadow: 0 0 8px currentColor;
+    transform: translate(-50%, -100%); padding-bottom: 4px;
+  }
 </style>
 </head>
 <body>
@@ -134,6 +152,16 @@
   <div class="sc-dot"></div>
   <div class="sc-label-tag">ORION</div>
 </div>
+
+<!-- Planet labels -->
+<div id="sun-label" class="planet-label" style="color:#ffdd44;">SUN</div>
+<div id="mercury-label" class="planet-label" style="color:#aaaaaa;">MERCURY</div>
+<div id="venus-label" class="planet-label" style="color:#eecc88;">VENUS</div>
+<div id="mars-label" class="planet-label" style="color:#ff6644;">MARS</div>
+<div id="jupiter-label" class="planet-label" style="color:#ddaa77;">JUPITER</div>
+<div id="saturn-label" class="planet-label" style="color:#ddcc88;">SATURN</div>
+
+<div id="angle-display">AZ: 0.0&deg; &nbsp; EL: 0.0&deg;</div>
 
 <div id="header">
   <div id="mission-title">ARTEMIS <span>II</span></div>
@@ -182,7 +210,7 @@
   Trajectory: JPL Horizons<br>
   Object: <b>-1024</b> (Orion)<br>
   <span id="last-fetch">Loading...</span><br>
-  <a href="https://www.nasa.gov/trackartemis" target="_blank">NASA AROW →</a>
+  <a href="https://www.nasa.gov/trackartemis" target="_blank">NASA AROW &rarr;</a>
 </div>
 
 <div id="crew">
@@ -217,6 +245,8 @@ const MOON_RADIUS = 1737;
 const EARTH_MOON_DIST = 384400;
 const KM_TO_MI = 0.621371;
 const KMH_TO_MPH = 0.621371;
+const AU_KM = 149597870.7;
+const OBLIQUITY = 23.439 * Math.PI / 180;
 
 let useMiles = true; // default to miles
 
@@ -236,12 +266,97 @@ const PHASES = [
 ];
 
 // ============================================================
+// ASTRONOMICAL HELPERS
+// ============================================================
+function getJD(date) {
+  return date.getTime() / 86400000 + 2440587.5;
+}
+
+function getGMST(date) {
+  const JD = getJD(date);
+  const T = (JD - 2451545.0) / 36525;
+  let gmst = 280.46061837 + 360.98564736629 * (JD - 2451545.0) + 0.000387933 * T * T;
+  return (((gmst % 360) + 360) % 360) * Math.PI / 180; // radians
+}
+
+function getSunPosition(date) {
+  const n = getJD(date) - 2451545.0;
+  const L = ((280.460 + 0.9856474 * n) % 360 + 360) % 360;
+  const g = ((357.528 + 0.9856003 * n) % 360 + 360) % 360;
+  const gRad = g * Math.PI / 180;
+  const eclLon = (L + 1.915 * Math.sin(gRad) + 0.020 * Math.sin(2 * gRad)) * Math.PI / 180;
+  // Geocentric sun direction in ICRF
+  const dist = 1000000; // large distance for directional light
+  return new THREE.Vector3(
+    dist * Math.cos(eclLon),
+    dist * Math.sin(eclLon) * Math.cos(OBLIQUITY),
+    dist * Math.sin(eclLon) * Math.sin(OBLIQUITY)
+  );
+}
+
+// Simplified planetary positions (geocentric ICRF) — computed once
+function computePlanetPositions(date) {
+  const n = getJD(date) - 2451545.0;
+  // Mean longitudes (degrees) and semi-major axes (AU)
+  const planets = {
+    mercury: { a: 0.387, L0: 252.25, rate: 4.09233, color: 0xaaaaaa },
+    venus:   { a: 0.723, L0: 181.98, rate: 1.60213, color: 0xeecc88 },
+    earth:   { a: 1.000, L0: 100.46, rate: 0.98560 },
+    mars:    { a: 1.524, L0: 355.45, rate: 0.52403, color: 0xff6644 },
+    jupiter: { a: 5.203, L0:  34.40, rate: 0.08309, color: 0xddaa77 },
+    saturn:  { a: 9.537, L0:  49.94, rate: 0.03346, color: 0xddcc88 },
+  };
+
+  // Earth heliocentric position
+  const earthL = ((planets.earth.L0 + planets.earth.rate * n) % 360 + 360) % 360 * Math.PI / 180;
+  const earthX = planets.earth.a * AU_KM * Math.cos(earthL);
+  const earthY = planets.earth.a * AU_KM * Math.sin(earthL);
+
+  const result = {};
+  for (const [name, p] of Object.entries(planets)) {
+    if (name === 'earth') continue;
+    const L = ((p.L0 + p.rate * n) % 360 + 360) % 360 * Math.PI / 180;
+    const helioX = p.a * AU_KM * Math.cos(L);
+    const helioY = p.a * AU_KM * Math.sin(L);
+    // Geocentric ecliptic
+    const geoEclX = helioX - earthX;
+    const geoEclY = helioY - earthY;
+    // Ecliptic to ICRF (rotate around X by obliquity)
+    const geoX = geoEclX;
+    const geoY = geoEclY * Math.cos(OBLIQUITY);
+    const geoZ = geoEclY * Math.sin(OBLIQUITY);
+    // Cap distance for rendering (keep direction, limit to 1.5M km)
+    const dist = Math.sqrt(geoX * geoX + geoY * geoY + geoZ * geoZ);
+    const capDist = Math.min(dist, 1500000);
+    const scale = capDist / dist;
+    result[name] = {
+      pos: new THREE.Vector3(geoX * scale, geoY * scale, geoZ * scale),
+      color: p.color,
+      realDist: dist,
+    };
+  }
+  return result;
+}
+
+// Sub-spacecraft point for arbitrary mission time
+function getSubPoint(tHours) {
+  const pos = interpolateTrajectory(tHours);
+  const distEC = pos.length();
+  if (distEC < 1) return { lat: 0, lon: 0 };
+  const lat = Math.asin(Math.min(1, Math.max(-1, pos.z / distEC))) * 180 / Math.PI;
+  const lon = Math.atan2(pos.y, pos.x) * 180 / Math.PI;
+  const metMs = tHours * 3600000;
+  const earthRotDeg = (metMs / 86400000) * 360;
+  const adjLon = ((lon - earthRotDeg) % 360 + 540) % 360 - 180;
+  return { lat, lon: adjLon };
+}
+
+// ============================================================
 // TRAJECTORY MODEL
 // ============================================================
 // Moon position - uses trajectory data to estimate when available
 let moonPosCache = null;
 function moonPosition(tHours) {
-  // If we have Horizons trajectory, find the farthest point from Earth as proxy for Moon location
   if (horizonsTrajectory && !moonPosCache) {
     let maxDist = 0, farthest = null;
     for (const e of horizonsTrajectory) {
@@ -249,14 +364,12 @@ function moonPosition(tHours) {
       if (d > maxDist) { maxDist = d; farthest = e; }
     }
     if (farthest) {
-      // Moon is approximately at the spacecraft's closest approach point direction, at EARTH_MOON_DIST
       const dist = Math.sqrt(maxDist);
       const scale = EARTH_MOON_DIST / dist;
       moonPosCache = { x: farthest.x * scale, y: farthest.y * scale, z: farthest.z * scale, t: farthest.t };
     }
   }
   if (moonPosCache) {
-    // Simple orbit: rotate from the cached position based on time difference
     const dt = (tHours - moonPosCache.t) * 0.55 * Math.PI / 180;
     const cos = Math.cos(dt), sin = Math.sin(dt);
     return new THREE.Vector3(
@@ -265,7 +378,6 @@ function moonPosition(tHours) {
       moonPosCache.z
     );
   }
-  // Fallback
   const angle = (tHours - 126) * 0.55 * Math.PI / 180;
   return new THREE.Vector3(EARTH_MOON_DIST * Math.cos(angle), EARTH_MOON_DIST * Math.sin(angle), 0);
 }
@@ -392,17 +504,16 @@ async function fetchFullTrajectory() {
         horizonsTrajectory = entries;
         WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
         buildTrajectoryLine();
+        buildMoonOrbitLine();
         document.getElementById('last-fetch').textContent = `Trajectory: ${entries.length} pts from JPL`;
       }
     }
   } catch(e) { console.warn('Full trajectory fetch failed:', e.message, e); }
 }
 
-// Retry with bigger step if first attempt fails
 async function fetchFullTrajectoryRetry() {
   await fetchFullTrajectory();
   if (!horizonsTrajectory) {
-    // Retry with 2h steps
     try {
       const params = new URLSearchParams({
         format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
@@ -416,6 +527,7 @@ async function fetchFullTrajectoryRetry() {
           horizonsTrajectory = entries;
           WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
           buildTrajectoryLine();
+          buildMoonOrbitLine();
           document.getElementById('last-fetch').textContent = `Traj: ${entries.length}pts JPL`;
           console.log('Full trajectory loaded (2h):', entries.length, 'points');
         }
@@ -451,7 +563,6 @@ async function fetchCurrentPosition() {
   }
 }
 
-// Expose for debugging
 window._debug = { get hz() { return horizonsTrajectory; }, get wp() { return WAYPOINTS; }, get live() { return liveData; } };
 
 fetchFullTrajectoryRetry().then(() => {
@@ -469,7 +580,6 @@ async function loadWorldMap() {
   try {
     const resp = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
     const topo = await resp.json();
-    // Parse TopoJSON manually (lightweight — no library needed)
     const countries = topo.objects.countries;
     const arcs = topo.arcs;
     const transform = topo.transform;
@@ -495,9 +605,8 @@ async function loadWorldMap() {
       return coords;
     }
 
-    // Country name lookup by ID
     const names = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
-      .then(() => null).catch(() => null); // names are in the topo properties
+      .then(() => null).catch(() => null);
 
     worldGeoData = countries.geometries.map(geom => {
       const polys = [];
@@ -511,15 +620,11 @@ async function loadWorldMap() {
       return { id: geom.id, name: geom.properties?.name || '', polys };
     });
 
-    // Load country names from a separate source
     try {
-      const namesResp = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
-      // Names might be in properties — let's also try a names CSV
       const namesResp2 = await fetch('https://cdn.jsdelivr.net/npm/i18n-iso-countries@7/langs/en.json');
       const namesJson = await namesResp2.json();
       if (namesJson.countries) {
         for (const geo of worldGeoData) {
-          // Numeric ID to ISO 3166-1 numeric → alpha-3
           const name = findCountryName(geo.id, namesJson.countries);
           if (name) geo.name = name;
         }
@@ -527,13 +632,13 @@ async function loadWorldMap() {
     } catch { /* country names optional */ }
 
     console.log(`World map loaded: ${worldGeoData.length} countries`);
+    buildEarthTexture();
   } catch(e) {
     console.warn('World map load failed:', e.message);
   }
 }
 
 function findCountryName(numericId, countriesObj) {
-  // ISO 3166-1 numeric to name mapping (common ones)
   const map = {
     '004':'Afghanistan','008':'Albania','012':'Algeria','024':'Angola','032':'Argentina',
     '036':'Australia','040':'Austria','050':'Bangladesh','056':'Belgium','076':'Brazil',
@@ -556,7 +661,6 @@ function findCountryName(numericId, countriesObj) {
 
 loadWorldMap();
 
-// Point-in-polygon test
 function pointInPolygon(lat, lon, ring) {
   let inside = false;
   for (let i = 0, j = ring.length-1; i < ring.length; j = i++) {
@@ -572,13 +676,83 @@ function getCountryAt(lat, lon) {
   if (!worldGeoData) return 'Loading...';
   for (const country of worldGeoData) {
     for (const polygon of country.polys) {
-      // Check outer ring (first ring)
       if (polygon[0] && pointInPolygon(lat, lon, polygon[0])) {
         return country.name || `Region ${country.id}`;
       }
     }
   }
   return 'Ocean';
+}
+
+// ============================================================
+// EARTH TEXTURE (render TopoJSON onto canvas)
+// ============================================================
+let earthTexture = null;
+
+function buildEarthTexture() {
+  if (!worldGeoData) return;
+  const W = 2048, H = 1024;
+  const tc = document.createElement('canvas');
+  tc.width = W; tc.height = H;
+  const ctx = tc.getContext('2d');
+
+  // Ocean
+  ctx.fillStyle = '#0a2a4a';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle ocean depth gradient
+  const oceanGrad = ctx.createLinearGradient(0, 0, 0, H);
+  oceanGrad.addColorStop(0, 'rgba(10, 50, 90, 0.3)');
+  oceanGrad.addColorStop(0.5, 'rgba(5, 30, 60, 0.0)');
+  oceanGrad.addColorStop(1, 'rgba(10, 50, 90, 0.3)');
+  ctx.fillStyle = oceanGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  function lonToX(lo) { return ((lo + 180) / 360) * W; }
+  function latToY(la) { return H / 2 - (la / 90) * (H / 2); }
+
+  // Land
+  ctx.fillStyle = '#1a5a3a';
+  ctx.strokeStyle = '#2a7a4a';
+  ctx.lineWidth = 0.8;
+  for (const country of worldGeoData) {
+    for (const polygon of country.polys) {
+      for (const ring of polygon) {
+        if (ring.length < 3) continue;
+        ctx.beginPath();
+        for (let i = 0; i < ring.length; i++) {
+          const x = lonToX(ring[i][0]), y = latToY(ring[i][1]);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Subtle lat/lon grid
+  ctx.strokeStyle = 'rgba(40, 100, 140, 0.15)';
+  ctx.lineWidth = 0.5;
+  for (let la = -60; la <= 60; la += 30) {
+    const y = latToY(la);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  for (let lo = -150; lo <= 180; lo += 30) {
+    const x = lonToX(lo);
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+
+  earthTexture = new THREE.CanvasTexture(tc);
+  earthTexture.colorSpace = THREE.SRGBColorSpace;
+
+  // Apply to Earth's main sphere
+  const earthMesh = earthGroup.children[0];
+  earthMesh.material.map = earthTexture;
+  earthMesh.material.color.set(0xffffff);
+  earthMesh.material.needsUpdate = true;
+
+  console.log('Earth texture applied');
 }
 
 // ============================================================
@@ -637,7 +811,7 @@ const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHei
 let toScale = false;
 const BODY_SCALE_EX = 4;
 
-// Stars — very far, fixed size (no twinkling)
+// Stars
 (function() {
   const geo = new THREE.BufferGeometry();
   const n = 6000;
@@ -651,7 +825,6 @@ const BODY_SCALE_EX = 4;
     pos[i*3+2] = r*Math.cos(ph);
   }
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  // sizeAttenuation: false → constant pixel size → no twinkling from camera movement
   scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
     color: 0xccccdd, size: 1.5, sizeAttenuation: false, transparent: true, opacity: 0.7
   })));
@@ -659,7 +832,13 @@ const BODY_SCALE_EX = 4;
 
 // Earth
 const earthGroup = new THREE.Group();
-earthGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1,64,64), new THREE.MeshPhongMaterial({color:0x1a5276, emissive:0x0a1a2a, specular:0x333333, shininess:25})));
+const earthMainMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 64, 64),
+  new THREE.MeshPhongMaterial({color:0x1a5276, emissive:0x0a1a2a, specular:0x333333, shininess:25})
+);
+// Tilt so poles align with scene Z (ICRF polar axis)
+earthMainMesh.rotation.x = -Math.PI / 2;
+earthGroup.add(earthMainMesh);
 earthGroup.add((() => { const m = new THREE.Mesh(new THREE.SphereGeometry(1.04,48,48), new THREE.MeshBasicMaterial({color:0x4488ff, transparent:true, opacity:0.12, side:THREE.BackSide})); return m; })());
 earthGroup.add((() => { const m = new THREE.Mesh(new THREE.SphereGeometry(1.15,32,32), new THREE.MeshBasicMaterial({color:0x3366cc, transparent:true, opacity:0.06, side:THREE.BackSide})); return m; })());
 scene.add(earthGroup);
@@ -702,6 +881,38 @@ function buildTrajectoryLine() {
 }
 buildTrajectoryLine();
 
+// Moon orbit line (day-colored, thinner)
+let moonOrbitGroup;
+function buildMoonOrbitLine() {
+  if (moonOrbitGroup) scene.remove(moonOrbitGroup);
+  moonOrbitGroup = new THREE.Group();
+  const maxT = WAYPOINTS[WAYPOINTS.length-1].t;
+
+  for (let day = 0; day < 10; day++) {
+    const dS = day * 24, dE = Math.min((day + 1) * 24, maxT);
+    if (dS >= maxT) continue;
+    const nPts = 60;
+    const positions = [];
+    for (let i = 0; i <= nPts; i++) {
+      const t = dS + (dE - dS) * (i / nPts);
+      const p = moonPosition(t);
+      positions.push(p.x, p.y, p.z);
+    }
+    const geo = new LineGeometry();
+    geo.setPositions(positions);
+    const mat = new LineMaterial({
+      color: new THREE.Color(DAY_COLORS[day]).getHex(),
+      linewidth: 1.5,
+      transparent: true,
+      opacity: 0.35,
+      resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    });
+    moonOrbitGroup.add(new Line2(geo, mat));
+  }
+  scene.add(moonOrbitGroup);
+}
+buildMoonOrbitLine();
+
 // Spacecraft 3D marker
 const scGroup = new THREE.Group();
 scGroup.renderOrder = 999;
@@ -718,9 +929,47 @@ scene.add(scLight);
 
 // Lights
 const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-sun.position.set(500000, 200000, 300000);
+sun.position.copy(getSunPosition(new Date()));
 scene.add(sun);
 scene.add(new THREE.AmbientLight(0x334455, 1.2));
+
+// Sun mesh (visible glowing object)
+const sunMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 32, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffee88 })
+);
+scene.add(sunMesh);
+
+// Sun glow sprite
+const sunGlowCanvas = document.createElement('canvas');
+sunGlowCanvas.width = 128; sunGlowCanvas.height = 128;
+const sgCtx = sunGlowCanvas.getContext('2d');
+const grad = sgCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+grad.addColorStop(0, 'rgba(255, 238, 136, 0.8)');
+grad.addColorStop(0.3, 'rgba(255, 220, 100, 0.3)');
+grad.addColorStop(1, 'rgba(255, 200, 50, 0)');
+sgCtx.fillStyle = grad;
+sgCtx.fillRect(0, 0, 128, 128);
+const sunGlowTex = new THREE.CanvasTexture(sunGlowCanvas);
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: sunGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthTest: false
+}));
+scene.add(sunGlow);
+
+// Planet meshes
+const planetData = computePlanetPositions(new Date());
+const planetMeshes = {};
+for (const [name, data] of Object.entries(planetData)) {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 16, 16),
+    new THREE.MeshBasicMaterial({ color: data.color })
+  );
+  mesh.position.copy(data.pos);
+  const size = name === 'jupiter' ? 4000 : name === 'saturn' ? 3500 : 2000;
+  mesh.scale.setScalar(size);
+  scene.add(mesh);
+  planetMeshes[name] = mesh;
+}
 
 // Day timeline
 const timelineEl = document.getElementById('timeline');
@@ -732,12 +981,92 @@ for (let d = 1; d <= 10; d++) {
 }
 
 // ============================================================
-// MINI MAP (real GeoJSON countries)
+// CAMERA DRAG CONTROLS
+// ============================================================
+let isDragging = false;
+let dragAzimuth = 0, dragElevation = 0.45;
+let lastDragTime = 0;
+let dragStartX = 0, dragStartY = 0, dragAzStart = 0, dragElStart = 0;
+const DRAG_PAUSE_DURATION = 60; // seconds
+
+canvas.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  dragAzStart = dragAzimuth; dragElStart = dragElevation;
+  canvas.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  const dx = (e.clientX - dragStartX) / window.innerWidth;
+  const dy = (e.clientY - dragStartY) / window.innerHeight;
+  dragAzimuth = dragAzStart - dx * Math.PI * 2;
+  dragElevation = Math.max(0.05, Math.min(1.4, dragElStart + dy * Math.PI));
+});
+window.addEventListener('mouseup', () => {
+  if (isDragging) {
+    isDragging = false;
+    lastDragTime = performance.now() * 0.001;
+    canvas.style.cursor = '';
+  }
+});
+
+// Touch support
+canvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 1) {
+    isDragging = true;
+    dragStartX = e.touches[0].clientX; dragStartY = e.touches[0].clientY;
+    dragAzStart = dragAzimuth; dragElStart = dragElevation;
+  }
+}, { passive: true });
+window.addEventListener('touchmove', (e) => {
+  if (!isDragging || e.touches.length !== 1) return;
+  const dx = (e.touches[0].clientX - dragStartX) / window.innerWidth;
+  const dy = (e.touches[0].clientY - dragStartY) / window.innerHeight;
+  dragAzimuth = dragAzStart - dx * Math.PI * 2;
+  dragElevation = Math.max(0.05, Math.min(1.4, dragElStart + dy * Math.PI));
+}, { passive: true });
+window.addEventListener('touchend', () => {
+  if (isDragging) {
+    isDragging = false;
+    lastDragTime = performance.now() * 0.001;
+  }
+});
+
+// ============================================================
+// MINI MAP (real GeoJSON countries + ground track)
 // ============================================================
 const mmCanvas = document.getElementById('minimap');
 const mctx = mmCanvas.getContext('2d');
 
-function drawMinimap(lat, lon) {
+// Ground track cache
+let groundTrackCache = null;
+let groundTrackTime = 0;
+
+function computeGroundTrack(metHours) {
+  const maxT = WAYPOINTS[WAYPOINTS.length - 1].t;
+  const minT = WAYPOINTS[0].t;
+  const past = [], future = [];
+
+  // Past 6 hours
+  for (let i = 0; i <= 90; i++) {
+    const t = metHours - 6 + (6 * i / 90);
+    if (t < minT || t > maxT) continue;
+    const pt = getSubPoint(t);
+    past.push({ ...pt, age: (metHours - t) / 6 }); // age: 0 (now) to 1 (6h ago)
+  }
+
+  // Future 6 hours
+  for (let i = 0; i <= 90; i++) {
+    const t = metHours + (6 * i / 90);
+    if (t < minT || t > maxT) continue;
+    const pt = getSubPoint(t);
+    future.push({ ...pt, age: (t - metHours) / 6 }); // age: 0 (now) to 1 (6h ahead)
+  }
+
+  return { past, future };
+}
+
+function drawMinimap(lat, lon, metHours) {
   const W = mmCanvas.width, H = mmCanvas.height;
   mctx.clearRect(0, 0, W, H);
   mctx.fillStyle = '#060e1a';
@@ -746,7 +1075,7 @@ function drawMinimap(lat, lon) {
   function lonToX(lo) { return ((lo+180)/360)*W; }
   function latToY(la) { return H/2 - (la/90)*(H/2); }
 
-  // Draw countries from GeoJSON
+  // Draw countries
   if (worldGeoData) {
     mctx.fillStyle = 'rgba(25, 70, 45, 0.7)';
     mctx.strokeStyle = 'rgba(60, 130, 80, 0.4)';
@@ -767,7 +1096,6 @@ function drawMinimap(lat, lon) {
       }
     }
   } else {
-    // Fallback: simple rectangles
     mctx.fillStyle = 'rgba(25, 70, 45, 0.5)';
     [[[-170,72],[-60,15]],[[-80,12],[-35,-55]],[[-10,70],[45,35]],[[-20,37],[50,-35]],[[40,70],[180,5]],[[112,-10],[155,-40]]].forEach(([tl,br]) => {
       mctx.fillRect(lonToX(tl[0]), latToY(tl[1]), lonToX(br[0])-lonToX(tl[0]), latToY(br[1])-latToY(tl[1]));
@@ -779,6 +1107,50 @@ function drawMinimap(lat, lon) {
   mctx.lineWidth = 0.5;
   for (let la = -60; la <= 60; la += 30) { const y = latToY(la); mctx.beginPath(); mctx.moveTo(0,y); mctx.lineTo(W,y); mctx.stroke(); }
   for (let lo = -150; lo <= 180; lo += 30) { const x = lonToX(lo); mctx.beginPath(); mctx.moveTo(x,0); mctx.lineTo(x,H); mctx.stroke(); }
+
+  // Ground track
+  const t = performance.now() * 0.001;
+  if (!groundTrackCache || t - groundTrackTime > 5) {
+    groundTrackCache = computeGroundTrack(metHours);
+    groundTrackTime = t;
+  }
+
+  // Draw past track (orange, fading)
+  if (groundTrackCache.past.length > 1) {
+    for (let i = 1; i < groundTrackCache.past.length; i++) {
+      const p0 = groundTrackCache.past[i - 1];
+      const p1 = groundTrackCache.past[i];
+      // Skip wrap-around segments
+      if (Math.abs(p1.lon - p0.lon) > 180) continue;
+      const alpha = 0.8 * (1 - p1.age);
+      if (alpha < 0.02) continue;
+      mctx.strokeStyle = `rgba(255, 140, 60, ${alpha})`;
+      mctx.lineWidth = 2;
+      mctx.beginPath();
+      mctx.moveTo(lonToX(p0.lon), latToY(p0.lat));
+      mctx.lineTo(lonToX(p1.lon), latToY(p1.lat));
+      mctx.stroke();
+    }
+  }
+
+  // Draw future track (blue, fading, dashed)
+  if (groundTrackCache.future.length > 1) {
+    for (let i = 1; i < groundTrackCache.future.length; i++) {
+      const p0 = groundTrackCache.future[i - 1];
+      const p1 = groundTrackCache.future[i];
+      if (Math.abs(p1.lon - p0.lon) > 180) continue;
+      const alpha = 0.6 * (1 - p1.age);
+      if (alpha < 0.02) continue;
+      mctx.strokeStyle = `rgba(80, 180, 255, ${alpha})`;
+      mctx.lineWidth = 1.5;
+      mctx.setLineDash([4, 4]);
+      mctx.beginPath();
+      mctx.moveTo(lonToX(p0.lon), latToY(p0.lat));
+      mctx.lineTo(lonToX(p1.lon), latToY(p1.lat));
+      mctx.stroke();
+    }
+    mctx.setLineDash([]);
+  }
 
   // Sub-spacecraft point
   const px = lonToX(lon), py = latToY(lat);
@@ -808,11 +1180,10 @@ function drawMinimap(lat, lon) {
     const mf = (a - d) * 60;
     const m = Math.floor(mf);
     const s = ((mf - m) * 60).toFixed(1);
-    return `${d}° ${String(m).padStart(2,'0')}' ${String(s).padStart(4,'0')}" ${deg >= 0 ? pos : neg}`;
+    return `${d}\u00B0 ${String(m).padStart(2,'0')}' ${String(s).padStart(4,'0')}" ${deg >= 0 ? pos : neg}`;
   }
   document.getElementById('subpoint-info').textContent = `${toDMS(lat,'N','S')}  ${toDMS(lon,'E','W')}`;
 
-  // Country name
   const cName = getCountryAt(lat, lon);
   document.getElementById('country-name').textContent = cName.toUpperCase();
 }
@@ -855,6 +1226,9 @@ window.toggleUnits = function() {
 // ============================================================
 // ANIMATION
 // ============================================================
+const angleDisplay = document.getElementById('angle-display');
+const planetLabelNames = ['sun','mercury','venus','mars','jupiter','saturn'];
+
 function animate() {
   requestAnimationFrame(animate);
   const state = getMissionState();
@@ -865,6 +1239,20 @@ function animate() {
   earthGroup.scale.setScalar(EARTH_RADIUS * bs);
   moonGroup.scale.setScalar(MOON_RADIUS * bs);
   moonGroup.position.copy(state.moonPos);
+
+  // Earth sidereal rotation
+  const gmst = getGMST(new Date());
+  earthMainMesh.rotation.y = gmst - Math.PI / 2;
+
+  // Sun position update
+  const sunPos = getSunPosition(new Date());
+  sun.position.copy(sunPos);
+  const sunDir = sunPos.clone().normalize();
+  const sunVisualDist = 1400000;
+  sunMesh.position.copy(sunDir.clone().multiplyScalar(sunVisualDist));
+  sunMesh.scale.setScalar(15000);
+  sunGlow.position.copy(sunMesh.position);
+  sunGlow.scale.setScalar(80000);
 
   // Spacecraft
   const scScale = toScale ? 2000 : 4500;
@@ -906,8 +1294,27 @@ function animate() {
     moonLbl.style.left = moonProj.x+'px'; moonLbl.style.top = moonProj.y+'px'; moonLbl.style.display = 'block';
   } else { moonLbl.style.display = 'none'; }
 
-  // Camera: 30-second infinity wobble with REAL parallax
-  // Auto-center on trajectory bounding box
+  // Planet labels (update every ~10 frames for performance)
+  if (!animate._plFrame) animate._plFrame = 0;
+  if (animate._plFrame++ % 10 === 0) {
+    // Sun label
+    const sunProj = projectToScreen(sunMesh.position);
+    const sunLbl = document.getElementById('sun-label');
+    if (sunProj.visible && showLabels) {
+      sunLbl.style.left = sunProj.x + 'px'; sunLbl.style.top = (sunProj.y - 20) + 'px'; sunLbl.style.display = 'block';
+    } else { sunLbl.style.display = 'none'; }
+
+    for (const name of ['mercury','venus','mars','jupiter','saturn']) {
+      const mesh = planetMeshes[name];
+      const proj = projectToScreen(mesh.position);
+      const lbl = document.getElementById(name + '-label');
+      if (proj.visible && showLabels) {
+        lbl.style.left = proj.x + 'px'; lbl.style.top = (proj.y - 10) + 'px'; lbl.style.display = 'block';
+      } else { lbl.style.display = 'none'; }
+    }
+  }
+
+  // Camera: auto-center on trajectory bounding box
   let centerX, centerY, camDist;
   if (WAYPOINTS.length > 2) {
     const xs = WAYPOINTS.map(w=>w.x), ys = WAYPOINTS.map(w=>w.y);
@@ -916,31 +1323,55 @@ function animate() {
     centerX = (minX + maxX) / 2;
     centerY = (minY + maxY) / 2;
     const extent = Math.max(maxX-minX, maxY-minY);
-    camDist = extent * 1.3; // pull back enough to see everything
+    camDist = extent * 1.3;
   } else {
     centerX = state.moonPos.x * 0.4;
     centerY = state.moonPos.y * 0.4;
     camDist = 600000;
   }
 
-  // Lissajous figure (infinity sign): sin(t) on one axis, sin(2t) on other
-  const wobbleT = t * (Math.PI * 2 / 30); // 30-second full loop
-  const azimuth = Math.sin(wobbleT) * 0.7;        // ±40 degrees sweep
-  const elevation = 0.5 + Math.sin(wobbleT * 2) * 0.25; // 15-40 degrees from top
+  // Camera control: drag or wobble
+  const timeSinceDrag = t - lastDragTime;
+  const wobblePaused = isDragging || (lastDragTime > 0 && timeSinceDrag < DRAG_PAUSE_DURATION);
+
+  let camAz, camEl;
+  if (wobblePaused) {
+    camAz = dragAzimuth;
+    camEl = dragElevation;
+    // Show angle display
+    const azDeg = ((dragAzimuth * 180 / Math.PI) % 360 + 360) % 360;
+    const elDeg = dragElevation * 180 / Math.PI;
+    angleDisplay.style.display = 'block';
+    angleDisplay.textContent = `AZ: ${azDeg.toFixed(1)}\u00B0  EL: ${elDeg.toFixed(1)}\u00B0`;
+    if (!isDragging && timeSinceDrag > DRAG_PAUSE_DURATION - 5) {
+      angleDisplay.style.opacity = String((DRAG_PAUSE_DURATION - timeSinceDrag) / 5);
+    } else {
+      angleDisplay.style.opacity = '1';
+    }
+  } else {
+    // Side-to-side Lissajous wobble
+    const wobbleT = t * (Math.PI * 2 / 30); // 30-second full loop
+    camAz = Math.sin(wobbleT) * 0.8;                    // wide horizontal sweep
+    camEl = 0.45 + Math.sin(wobbleT * 2) * 0.05;        // nearly fixed vertical
+    angleDisplay.style.display = 'none';
+  }
 
   camera.position.set(
-    centerX + camDist * Math.sin(azimuth) * Math.cos(elevation),
-    centerY - camDist * Math.sin(elevation),
-    camDist * Math.cos(azimuth) * Math.cos(elevation)
+    centerX + camDist * Math.sin(camAz) * Math.cos(camEl),
+    centerY - camDist * Math.sin(camEl),
+    camDist * Math.cos(camAz) * Math.cos(camEl)
   );
   camera.lookAt(centerX, centerY, 0);
   camera.up.set(0, 1, 0);
 
   // Update line material resolution on resize
-  if (trajectoryGroup) {
-    trajectoryGroup.children.forEach(line => {
-      if (line.material?.resolution) line.material.resolution.set(window.innerWidth, window.innerHeight);
-    });
+  const allLineGroups = [trajectoryGroup, moonOrbitGroup];
+  for (const group of allLineGroups) {
+    if (group) {
+      group.children.forEach(line => {
+        if (line.material?.resolution) line.material.resolution.set(window.innerWidth, window.innerHeight);
+      });
+    }
   }
 
   // Units
@@ -971,7 +1402,7 @@ function animate() {
 
   // Minimap (every ~500ms)
   if (!animate._lastMap || t - animate._lastMap > 0.5) {
-    drawMinimap(state.lat, state.lon);
+    drawMinimap(state.lat, state.lon, state.metHours);
     animate._lastMap = t;
   }
 
