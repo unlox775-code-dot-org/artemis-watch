@@ -1486,7 +1486,7 @@ function animate() {
     // Side-to-side wobble applied to base orientation
     const wobbleT = t * (Math.PI * 2 / 30); // 30-second full loop
     const wobbleYaw = Math.sin(wobbleT) * 0.8;
-    const wobblePitch = Math.sin(wobbleT * 2) * 0.05;
+    const wobblePitch = Math.sin(wobbleT * 2) * 0.2;
     // Start from base orientation
     activeCamDir = baseCamDir.clone();
     activeCamUp = baseCamUp.clone();
