@@ -577,7 +577,7 @@ async function fetchFullTrajectory() {
     // Main trajectory at 30-min resolution
     const params = new URLSearchParams({
       format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
-      START_TIME:"'2026-04-02 01:00'", STOP_TIME:"'2026-04-12 06:00'",
+      START_TIME:"'2026-04-02 02:00'", STOP_TIME:"'2026-04-10 23:00'",
       STEP_SIZE:"'30 min'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
     });
     const json = await horizonsFetch(params.toString());
@@ -591,24 +591,32 @@ async function fetchFullTrajectory() {
 }
 
 async function applyTrajectoryData(entries) {
-  // Fetch fine resolution near periapsis (Day 1→2 close approach)
-  try {
-    const fineParams = new URLSearchParams({
-      format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
-      START_TIME:"'2026-04-02 21:00'", STOP_TIME:"'2026-04-03 03:00'",
-      STEP_SIZE:"'5 min'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
-    });
-    const fineJson = await horizonsFetch(fineParams.toString());
-    if (fineJson.result) {
-      const fineEntries = parseHorizonsVectors(fineJson.result);
-      if (fineEntries.length > 5) {
-        const fineStart = fineEntries[0].t, fineEnd = fineEntries[fineEntries.length-1].t;
-        entries = entries.filter(e => e.t < fineStart || e.t > fineEnd).concat(fineEntries);
-        entries.sort((a,b) => a.t - b.t);
-        console.log('Fine periapsis data merged:', fineEntries.length, 'fine pts');
+  // Fetch fine resolution near both perigee passes (1-min steps)
+  // Outbound perigee: ~Apr 2 20:00 to Apr 3 04:00 (periapsis at ~23:50)
+  // Return perigee: ~Apr 10 18:00 to Apr 10 23:00 (periapsis near end of ephemeris)
+  const fineWindows = [
+    { start: '2026-04-02 20:00', stop: '2026-04-03 04:00', step: '1 min' },
+    { start: '2026-04-10 18:00', stop: '2026-04-10 23:00', step: '1 min' },
+  ];
+  for (const win of fineWindows) {
+    try {
+      const fineParams = new URLSearchParams({
+        format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
+        START_TIME:`'${win.start}'`, STOP_TIME:`'${win.stop}'`, STEP_SIZE:`'${win.step}'`,
+        VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
+      });
+      const fineJson = await horizonsFetch(fineParams.toString());
+      if (fineJson.result) {
+        const fineEntries = parseHorizonsVectors(fineJson.result);
+        if (fineEntries.length > 5) {
+          const fineStart = fineEntries[0].t, fineEnd = fineEntries[fineEntries.length-1].t;
+          entries = entries.filter(e => e.t < fineStart || e.t > fineEnd).concat(fineEntries);
+          entries.sort((a,b) => a.t - b.t);
+          console.log('Fine perigee data merged:', fineEntries.length, 'pts for', win.start);
+        }
       }
-    }
-  } catch(e) { console.warn('Fine periapsis fetch failed:', e.message); }
+    } catch(e) { console.warn('Fine perigee fetch failed:', win.start, e.message); }
+  }
 
   horizonsTrajectory = entries;
   WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
@@ -719,7 +727,7 @@ async function fetchFullTrajectoryRetry() {
     try {
       const params = new URLSearchParams({
         format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
-        START_TIME:"'2026-04-02 02:00'", STOP_TIME:"'2026-04-10 23:00'",
+        START_TIME:"'2026-04-02 02:00'", STOP_TIME:"'2026-04-10 22:00'",
         STEP_SIZE:"'2 h'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
       });
       const json = await horizonsFetch(params.toString());
