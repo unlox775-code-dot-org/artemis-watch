@@ -524,7 +524,7 @@ async function fetchFullTrajectory() {
         WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
         buildTrajectoryLine();
         buildMoonOrbitLine();
-        computeCameraUp();
+        initCameraOrientation();
         document.getElementById('last-fetch').textContent = `Trajectory: ${entries.length} pts from JPL`;
       }
     }
@@ -1059,79 +1059,109 @@ for (let d = 1; d <= 10; d++) {
 }
 
 // ============================================================
-// CAMERA DRAG CONTROLS
+// TRACKBALL CAMERA CONTROLS
 // ============================================================
-const BASE_AZIMUTH = 0; // From +Z direction, looking at orbital plane
-const BASE_ELEVATION = 0.25; // ~14° tilt for depth
-// Compute camera up vector so trajectory principal axis maps to screen horizontal
-// Recomputed when trajectory data loads
-let cameraUp = new THREE.Vector3(0, 1, 0);
-function computeCameraUp() {
+// Camera orientation stored as unit vectors: camDir (center→camera), camUp
+// Supports view-relative rotation: dragging always rotates relative to
+// what you're currently seeing, like a trackball / Google Earth.
+let camDir = new THREE.Vector3(0, 0, 1);   // unit: center-to-camera direction
+let camUp = new THREE.Vector3(0, 1, 0);    // camera up
+let baseCamDir = new THREE.Vector3();       // wobble base orientation
+let baseCamUp = new THREE.Vector3();
+
+function initCameraOrientation() {
   if (WAYPOINTS.length < 3) return;
-  // Find trajectory principal direction (first point to farthest point)
+  // Find trajectory principal direction (first → farthest point)
   const first = WAYPOINTS[0];
   let maxD = 0, farthest = first;
   for (const w of WAYPOINTS) {
     const d = w.x*w.x + w.y*w.y + w.z*w.z;
     if (d > maxD) { maxD = d; farthest = w; }
   }
-  const trajDir = new THREE.Vector3(farthest.x - first.x, farthest.y - first.y, 0).normalize();
-  // Camera up = perpendicular to trajectory in XY, so trajectory maps to screen horizontal
-  // For camera looking from +Z: screen_right = cross(viewDir, up)
-  // viewDir ≈ (0, 0, -1), so screen_right = (up.y, -up.x, 0)
-  // We want screen_right ∝ trajDir, so: up.y = trajDir.x, -up.x = trajDir.y → up.x = -trajDir.y
-  cameraUp.set(-trajDir.y, trajDir.x, 0).normalize();
+  // Trajectory lies mostly in XY plane; compute a "right" vector along trajectory
+  const trajDir = new THREE.Vector3(farthest.x - first.x, farthest.y - first.y, farthest.z - first.z).normalize();
+  // Orbital normal (approx Z for near-ecliptic orbits)
+  const orbNormal = new THREE.Vector3(0, 0, 1);
+  // Camera looks from a direction perpendicular to trajectory, slightly above orbital plane
+  // "Right" in orbit plane, perpendicular to trajectory
+  const viewBase = new THREE.Vector3().crossVectors(trajDir, orbNormal).normalize();
+  // Tilt ~3° above orbital plane for a nearly ecliptic view
+  const elevRad = 0.05; // ~3°
+  camDir.copy(viewBase).multiplyScalar(Math.cos(elevRad));
+  camDir.addScaledVector(orbNormal, Math.sin(elevRad));
+  camDir.normalize();
+  // Camera up = orbital normal
+  camUp.copy(orbNormal);
+  // Ensure camUp is perpendicular to camDir
+  camUp.addScaledVector(camDir, -camUp.dot(camDir));
+  camUp.normalize();
+  baseCamDir.copy(camDir);
+  baseCamUp.copy(camUp);
 }
-computeCameraUp();
+initCameraOrientation();
+
+// Rotate a vector around an arbitrary axis by angle (radians)
+function rotateVecAroundAxis(vec, axis, angle) {
+  const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+  vec.applyQuaternion(q);
+}
 
 let isDragging = false;
-let dragAzimuth = BASE_AZIMUTH, dragElevation = 0.25;
 let lastDragTime = 0;
-let dragStartX = 0, dragStartY = 0, dragAzStart = 0, dragElStart = 0;
+let prevDragX = 0, prevDragY = 0;
 const DRAG_PAUSE_DURATION = 60; // seconds
+const DRAG_SENSITIVITY = 3.0; // radians per full-screen drag
 
-canvas.addEventListener('mousedown', (e) => {
+function handleDragStart(x, y) {
   isDragging = true;
-  dragStartX = e.clientX; dragStartY = e.clientY;
-  dragAzStart = dragAzimuth; dragElStart = dragElevation;
+  prevDragX = x;
+  prevDragY = y;
   canvas.style.cursor = 'grabbing';
-});
-window.addEventListener('mousemove', (e) => {
+}
+
+function handleDragMove(x, y) {
   if (!isDragging) return;
-  const dx = (e.clientX - dragStartX) / window.innerWidth;
-  const dy = (e.clientY - dragStartY) / window.innerHeight;
-  dragAzimuth = dragAzStart - dx * Math.PI * 2;
-  dragElevation = Math.max(0.05, Math.min(1.4, dragElStart + dy * Math.PI));
-});
-window.addEventListener('mouseup', () => {
+  const dx = (x - prevDragX) / window.innerWidth * DRAG_SENSITIVITY;
+  const dy = (y - prevDragY) / window.innerHeight * DRAG_SENSITIVITY;
+  prevDragX = x;
+  prevDragY = y;
+
+  // Compute camera's screen-space right axis
+  const camRight = new THREE.Vector3().crossVectors(camDir, camUp).normalize().negate();
+
+  // Rotate camDir and camUp around screen-right axis (vertical mouse → pitch)
+  rotateVecAroundAxis(camDir, camRight, dy);
+  rotateVecAroundAxis(camUp, camRight, dy);
+
+  // Rotate camDir and camUp around camUp axis (horizontal mouse → yaw)
+  const upAxis = camUp.clone();
+  rotateVecAroundAxis(camDir, upAxis, dx);
+
+  camDir.normalize();
+  camUp.addScaledVector(camDir, -camUp.dot(camDir));
+  camUp.normalize();
+}
+
+function handleDragEnd() {
   if (isDragging) {
     isDragging = false;
     lastDragTime = performance.now() * 0.001;
     canvas.style.cursor = '';
   }
-});
+}
+
+canvas.addEventListener('mousedown', (e) => handleDragStart(e.clientX, e.clientY));
+window.addEventListener('mousemove', (e) => handleDragMove(e.clientX, e.clientY));
+window.addEventListener('mouseup', handleDragEnd);
 
 // Touch support
 canvas.addEventListener('touchstart', (e) => {
-  if (e.touches.length === 1) {
-    isDragging = true;
-    dragStartX = e.touches[0].clientX; dragStartY = e.touches[0].clientY;
-    dragAzStart = dragAzimuth; dragElStart = dragElevation;
-  }
+  if (e.touches.length === 1) handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
 }, { passive: true });
 window.addEventListener('touchmove', (e) => {
-  if (!isDragging || e.touches.length !== 1) return;
-  const dx = (e.touches[0].clientX - dragStartX) / window.innerWidth;
-  const dy = (e.touches[0].clientY - dragStartY) / window.innerHeight;
-  dragAzimuth = dragAzStart - dx * Math.PI * 2;
-  dragElevation = Math.max(0.05, Math.min(1.4, dragElStart + dy * Math.PI));
+  if (e.touches.length === 1) handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
 }, { passive: true });
-window.addEventListener('touchend', () => {
-  if (isDragging) {
-    isDragging = false;
-    lastDragTime = performance.now() * 0.001;
-  }
-});
+window.addEventListener('touchend', handleDragEnd);
 
 // ============================================================
 // MINI MAP (real GeoJSON countries + ground track)
@@ -1417,18 +1447,18 @@ function animate() {
   }
 
   // Camera: auto-center on trajectory bounding box
-  let centerX, centerY, camDist;
+  let camCenter = new THREE.Vector3();
+  let camDist;
   if (WAYPOINTS.length > 2) {
-    const xs = WAYPOINTS.map(w=>w.x), ys = WAYPOINTS.map(w=>w.y);
+    const xs = WAYPOINTS.map(w=>w.x), ys = WAYPOINTS.map(w=>w.y), zs = WAYPOINTS.map(w=>w.z);
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
-    centerX = (minX + maxX) / 2;
-    centerY = (minY + maxY) / 2;
-    const extent = Math.max(maxX-minX, maxY-minY);
+    const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+    camCenter.set((minX+maxX)/2, (minY+maxY)/2, (minZ+maxZ)/2);
+    const extent = Math.max(maxX-minX, maxY-minY, maxZ-minZ);
     camDist = extent * 1.3;
   } else {
-    centerX = state.moonPos.x * 0.4;
-    centerY = state.moonPos.y * 0.4;
+    camCenter.set(state.moonPos.x * 0.4, state.moonPos.y * 0.4, 0);
     camDist = 600000;
   }
 
@@ -1436,13 +1466,16 @@ function animate() {
   const timeSinceDrag = t - lastDragTime;
   const wobblePaused = isDragging || (lastDragTime > 0 && timeSinceDrag < DRAG_PAUSE_DURATION);
 
-  let camAz, camEl;
+  let activeCamDir, activeCamUp;
   if (wobblePaused) {
-    camAz = dragAzimuth;
-    camEl = dragElevation;
-    // Show angle display
-    const azDeg = ((dragAzimuth * 180 / Math.PI) % 360 + 360) % 360;
-    const elDeg = dragElevation * 180 / Math.PI;
+    // Use current drag orientation directly
+    activeCamDir = camDir;
+    activeCamUp = camUp;
+    // Compute AZ/EL from camDir for display
+    const azRad = Math.atan2(camDir.x, camDir.z);
+    const elRad = Math.asin(Math.max(-1, Math.min(1, camDir.y / camDir.length())));
+    const azDeg = ((azRad * 180 / Math.PI) % 360 + 360) % 360;
+    const elDeg = elRad * 180 / Math.PI;
     angleDisplay.style.display = 'block';
     angleDisplay.textContent = `AZ: ${azDeg.toFixed(1)}\u00B0  EL: ${elDeg.toFixed(1)}\u00B0`;
     if (!isDragging && timeSinceDrag > DRAG_PAUSE_DURATION - 5) {
@@ -1451,20 +1484,32 @@ function animate() {
       angleDisplay.style.opacity = '1';
     }
   } else {
-    // Side-to-side Lissajous wobble
+    // Side-to-side wobble applied to base orientation
     const wobbleT = t * (Math.PI * 2 / 30); // 30-second full loop
-    camAz = BASE_AZIMUTH + Math.sin(wobbleT) * 0.8;      // wide horizontal sweep around base angle
-    camEl = 0.25 + Math.sin(wobbleT * 2) * 0.05; // ~14° with slight oscillation
+    const wobbleYaw = Math.sin(wobbleT) * 0.8;
+    const wobblePitch = Math.sin(wobbleT * 2) * 0.05;
+    // Start from base orientation
+    activeCamDir = baseCamDir.clone();
+    activeCamUp = baseCamUp.clone();
+    // Compute right axis from base
+    const right = new THREE.Vector3().crossVectors(activeCamDir, activeCamUp).normalize().negate();
+    // Apply yaw (around up)
+    rotateVecAroundAxis(activeCamDir, activeCamUp, wobbleYaw);
+    // Apply pitch (around right)
+    rotateVecAroundAxis(activeCamDir, right, wobblePitch);
+    rotateVecAroundAxis(activeCamUp, right, wobblePitch);
+    activeCamDir.normalize();
+    activeCamUp.addScaledVector(activeCamDir, -activeCamUp.dot(activeCamDir));
+    activeCamUp.normalize();
+    // Sync drag state to wobble so drag picks up smoothly
+    camDir.copy(activeCamDir);
+    camUp.copy(activeCamUp);
     angleDisplay.style.display = 'none';
   }
 
-  camera.position.set(
-    centerX + camDist * Math.sin(camAz) * Math.cos(camEl),
-    centerY - camDist * Math.sin(camEl),
-    camDist * Math.cos(camAz) * Math.cos(camEl)
-  );
-  camera.lookAt(centerX, centerY, 0);
-  camera.up.copy(cameraUp);
+  camera.position.copy(camCenter).addScaledVector(activeCamDir, camDist);
+  camera.up.copy(activeCamUp);
+  camera.lookAt(camCenter);
 
   // Update line material resolution on resize
   const allLineGroups = [trajectoryGroup, moonOrbitGroup];
