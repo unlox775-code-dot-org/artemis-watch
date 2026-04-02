@@ -1378,27 +1378,21 @@ function animate() {
     scEl.style.left = scProj.x+'px'; scEl.style.top = scProj.y+'px'; scEl.style.display = 'block';
   } else { scEl.style.display = 'none'; }
 
-  // Earth label — up and to the left of the sphere so it doesn't obscure it
+  // Earth label — up and to the left in screen space
   const earthCenter = projectToScreen(new THREE.Vector3(0, 0, 0));
-  const earthBS = EARTH_RADIUS * bs;
-  const earthEdge = projectToScreen(new THREE.Vector3(earthBS, 0, 0));
-  const earthScreenR = Math.abs(earthEdge.x - earthCenter.x) || 20;
   const earthLbl = document.getElementById('earth-label');
   if (earthCenter.visible && showLabels) {
-    earthLbl.style.left = (earthCenter.x - earthScreenR * 0.7) + 'px';
-    earthLbl.style.top = (earthCenter.y - earthScreenR - 8) + 'px';
+    earthLbl.style.left = (earthCenter.x - 12) + 'px';
+    earthLbl.style.top = (earthCenter.y - 40) + 'px';
     earthLbl.style.display = 'block';
   } else { earthLbl.style.display = 'none'; }
 
-  // Moon label — up and to the left
-  const moonBS = MOON_RADIUS * bs;
+  // Moon label — up and to the left in screen space
   const moonCenter = projectToScreen(state.moonPos);
-  const moonEdge = projectToScreen(new THREE.Vector3(state.moonPos.x + moonBS, state.moonPos.y, state.moonPos.z));
-  const moonScreenR = Math.abs(moonEdge.x - moonCenter.x) || 15;
   const moonLbl = document.getElementById('moon-label');
   if (moonCenter.visible && showLabels) {
-    moonLbl.style.left = (moonCenter.x - moonScreenR * 0.7) + 'px';
-    moonLbl.style.top = (moonCenter.y - moonScreenR - 8) + 'px';
+    moonLbl.style.left = (moonCenter.x - 10) + 'px';
+    moonLbl.style.top = (moonCenter.y - 30) + 'px';
     moonLbl.style.display = 'block';
   } else { moonLbl.style.display = 'none'; }
 
