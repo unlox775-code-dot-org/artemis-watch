@@ -238,7 +238,34 @@ const PHASES = [
 // ============================================================
 // TRAJECTORY MODEL
 // ============================================================
+// Moon position - uses trajectory data to estimate when available
+let moonPosCache = null;
 function moonPosition(tHours) {
+  // If we have Horizons trajectory, find the farthest point from Earth as proxy for Moon location
+  if (horizonsTrajectory && !moonPosCache) {
+    let maxDist = 0, farthest = null;
+    for (const e of horizonsTrajectory) {
+      const d = e.x*e.x + e.y*e.y + e.z*e.z;
+      if (d > maxDist) { maxDist = d; farthest = e; }
+    }
+    if (farthest) {
+      // Moon is approximately at the spacecraft's closest approach point direction, at EARTH_MOON_DIST
+      const dist = Math.sqrt(maxDist);
+      const scale = EARTH_MOON_DIST / dist;
+      moonPosCache = { x: farthest.x * scale, y: farthest.y * scale, z: farthest.z * scale, t: farthest.t };
+    }
+  }
+  if (moonPosCache) {
+    // Simple orbit: rotate from the cached position based on time difference
+    const dt = (tHours - moonPosCache.t) * 0.55 * Math.PI / 180;
+    const cos = Math.cos(dt), sin = Math.sin(dt);
+    return new THREE.Vector3(
+      moonPosCache.x * cos - moonPosCache.y * sin,
+      moonPosCache.x * sin + moonPosCache.y * cos,
+      moonPosCache.z
+    );
+  }
+  // Fallback
   const angle = (tHours - 126) * 0.55 * Math.PI / 180;
   return new THREE.Vector3(EARTH_MOON_DIST * Math.cos(angle), EARTH_MOON_DIST * Math.sin(angle), 0);
 }
@@ -880,9 +907,21 @@ function animate() {
   } else { moonLbl.style.display = 'none'; }
 
   // Camera: 30-second infinity wobble with REAL parallax
-  const centerX = state.moonPos.x * 0.4;
-  const centerY = state.moonPos.y * 0.4;
-  const camDist = toScale ? 550000 : 600000;
+  // Auto-center on trajectory bounding box
+  let centerX, centerY, camDist;
+  if (WAYPOINTS.length > 2) {
+    const xs = WAYPOINTS.map(w=>w.x), ys = WAYPOINTS.map(w=>w.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    centerX = (minX + maxX) / 2;
+    centerY = (minY + maxY) / 2;
+    const extent = Math.max(maxX-minX, maxY-minY);
+    camDist = extent * 1.3; // pull back enough to see everything
+  } else {
+    centerX = state.moonPos.x * 0.4;
+    centerY = state.moonPos.y * 0.4;
+    camDist = 600000;
+  }
 
   // Lissajous figure (infinity sign): sin(t) on one axis, sin(2t) on other
   const wobbleT = t * (Math.PI * 2 / 30); // 30-second full loop
