@@ -160,8 +160,8 @@
     #controls { right: 12px; top: 50px; }
     .ctrl-btn { font-size: 10px; padding: 5px 10px; }
 
-    #datasource { display: none; }
-    #crew { display: none; }
+    #datasource { font-size: 8px; max-width: 150px; right: 12px; top: 160px; }
+    #crew { font-size: 9px; right: 12px; }
 
     #telemetry { left: 12px; bottom: 70px; gap: 6px; }
     .telem-card { padding: 8px 12px; min-width: 0; }
@@ -453,6 +453,113 @@ function moonPosition(tHours) {
   return new THREE.Vector3(EARTH_MOON_DIST * Math.cos(angle), EARTH_MOON_DIST * Math.sin(angle), 0);
 }
 
+// Precomputed backward-propagated launch trajectory (2-body Keplerian, LEO→HEO→TLI)
+// 302 points from t=0 (launch) to t≈3.5h (first Horizons data point)
+// Computed once from JPL Horizons first data point using Velocity Verlet integration
+const PRECOMPUTED_LAUNCH = [
+{t:0.0000,x:-3804,y:-5333,z:-466},{t:0.0083,x:-3992,y:-5195,z:-455},{t:0.0167,x:-4175,y:-5050,z:-443},
+{t:0.0250,x:-4353,y:-4899,z:-430},{t:0.0333,x:-4525,y:-4741,z:-417},{t:0.0417,x:-4691,y:-4578,z:-403},
+{t:0.0500,x:-4852,y:-4408,z:-389},{t:0.0583,x:-5006,y:-4233,z:-374},{t:0.0667,x:-5154,y:-4053,z:-359},
+{t:0.0750,x:-5296,y:-3868,z:-344},{t:0.0833,x:-5431,y:-3677,z:-328},{t:0.0917,x:-5559,y:-3482,z:-311},
+{t:0.1000,x:-5679,y:-3283,z:-295},{t:0.1083,x:-5793,y:-3079,z:-277},{t:0.1167,x:-5899,y:-2872,z:-260},
+{t:0.1250,x:-5998,y:-2661,z:-242},{t:0.1333,x:-6090,y:-2446,z:-224},{t:0.1417,x:-6173,y:-2229,z:-205},
+{t:0.1500,x:-6249,y:-2008,z:-187},{t:0.1583,x:-6317,y:-1785,z:-168},{t:0.1667,x:-6377,y:-1560,z:-148},
+{t:0.1750,x:-6428,y:-1333,z:-129},{t:0.1833,x:-6472,y:-1104,z:-110},{t:0.1917,x:-6507,y:-874,z:-90},
+{t:0.2000,x:-6534,y:-643,z:-70},{t:0.2083,x:-6553,y:-410,z:-50},{t:0.2167,x:-6564,y:-178,z:-30},
+{t:0.2250,x:-6566,y:55,z:-10},{t:0.2333,x:-6560,y:288,z:10},{t:0.2417,x:-6546,y:521,z:30},
+{t:0.2500,x:-6523,y:753,z:50},{t:0.2583,x:-6492,y:983,z:69},{t:0.2667,x:-6453,y:1213,z:89},
+{t:0.2750,x:-6405,y:1441,z:109},{t:0.2833,x:-6350,y:1667,z:128},{t:0.2917,x:-6287,y:1892,z:148},
+{t:0.3000,x:-6215,y:2113,z:167},{t:0.3083,x:-6136,y:2332,z:186},{t:0.3167,x:-6049,y:2549,z:205},
+{t:0.3250,x:-5954,y:2761,z:223},{t:0.3333,x:-5852,y:2971,z:241},{t:0.3417,x:-5742,y:3176,z:259},
+{t:0.3500,x:-5625,y:3378,z:277},{t:0.3583,x:-5501,y:3575,z:294},{t:0.3667,x:-5370,y:3768,z:311},
+{t:0.3750,x:-5232,y:3956,z:327},{t:0.3833,x:-5087,y:4139,z:343},{t:0.3917,x:-4936,y:4317,z:359},
+{t:0.4000,x:-4779,y:4489,z:374},{t:0.4083,x:-4616,y:4656,z:389},{t:0.4167,x:-4447,y:4817,z:403},
+{t:0.4250,x:-4272,y:4971,z:416},{t:0.4333,x:-4092,y:5120,z:430},{t:0.4417,x:-3907,y:5262,z:442},
+{t:0.4500,x:-3716,y:5397,z:454},{t:0.4583,x:-3521,y:5525,z:466},{t:0.4667,x:-3322,y:5647,z:477},
+{t:0.4750,x:-3118,y:5761,z:487},{t:0.4833,x:-2911,y:5868,z:496},{t:0.4917,x:-2699,y:5967,z:505},
+{t:0.5000,x:-2485,y:6059,z:514},{t:0.5083,x:-2267,y:6144,z:522},{t:0.5167,x:-2046,y:6220,z:529},
+{t:0.5250,x:-1823,y:6289,z:535},{t:0.5333,x:-1597,y:6350,z:541},{t:0.5417,x:-1370,y:6402,z:546},
+{t:0.5500,x:-1140,y:6447,z:550},{t:0.5583,x:-910,y:6483,z:554},{t:0.5667,x:-678,y:6511,z:557},
+{t:0.5750,x:-445,y:6531,z:559},{t:0.5833,x:-212,y:6543,z:561},{t:0.5917,x:22,y:6547,z:561},
+{t:0.6000,x:256,y:6542,z:561},{t:0.6083,x:489,y:6529,z:561},{t:0.6167,x:722,y:6507,z:560},
+{t:0.6250,x:953,y:6478,z:558},{t:0.6333,x:1184,y:6440,z:555},{t:0.6417,x:1413,y:6394,z:551},
+{t:0.6500,x:1640,y:6340,z:547},{t:0.6583,x:1865,y:6278,z:543},{t:0.6667,x:2088,y:6208,z:537},
+{t:0.6750,x:2308,y:6130,z:531},{t:0.6833,x:2525,y:6045,z:524},{t:0.6917,x:2740,y:5952,z:517},
+{t:0.7000,x:2950,y:5851,z:508},{t:0.7083,x:3157,y:5743,z:500},{t:0.7167,x:3360,y:5628,z:490},
+{t:0.7250,x:3559,y:5505,z:480},{t:0.7333,x:3753,y:5376,z:470},{t:0.7417,x:3942,y:5239,z:458},
+{t:0.7500,x:4127,y:5097,z:446},{t:0.7583,x:4306,y:4947,z:434},{t:0.7667,x:4480,y:4792,z:421},
+{t:0.7750,x:4648,y:4630,z:408},{t:0.7833,x:4810,y:4463,z:394},{t:0.7917,x:4966,y:4290,z:379},
+{t:0.8000,x:5116,y:4111,z:364},{t:0.8083,x:5259,y:3928,z:349},{t:0.8167,x:5396,y:3739,z:333},
+{t:0.8250,x:5526,y:3546,z:317},{t:0.8333,x:5649,y:3348,z:300},{t:0.8417,x:5765,y:3146,z:283},
+{t:0.8500,x:5874,y:2940,z:266},{t:0.8583,x:5975,y:2730,z:248},{t:0.8667,x:6069,y:2517,z:230},
+{t:0.8750,x:6155,y:2301,z:211},{t:0.8833,x:6233,y:2082,z:193},{t:0.8917,x:6303,y:1860,z:174},
+{t:0.9000,x:6365,y:1635,z:155},{t:0.9083,x:6420,y:1409,z:136},{t:0.9167,x:6466,y:1181,z:116},
+{t:0.9250,x:6504,y:952,z:97},{t:0.9333,x:6534,y:721,z:77},{t:0.9417,x:6556,y:489,z:57},
+{t:0.9500,x:6569,y:257,z:37},{t:0.9583,x:6574,y:24,z:17},{t:0.9667,x:6571,y:-208,z:-3},
+{t:0.9750,x:6559,y:-441,z:-23},{t:0.9833,x:6539,y:-673,z:-43},{t:0.9917,x:6511,y:-904,z:-63},
+{t:1.0000,x:6475,y:-1133,z:-82},{t:1.0083,x:6430,y:-1362,z:-102},{t:1.0167,x:6378,y:-1588,z:-122},
+{t:1.0250,x:6317,y:-1813,z:-141},{t:1.0333,x:6249,y:-2036,z:-160},{t:1.0417,x:6172,y:-2255,z:-179},
+{t:1.0500,x:6088,y:-2472,z:-198},{t:1.0583,x:5996,y:-2686,z:-217},{t:1.0667,x:5896,y:-2897,z:-235},
+{t:1.0750,x:5789,y:-3103,z:-253},{t:1.0833,x:5675,y:-3306,z:-270},{t:1.0917,x:5553,y:-3505,z:-288},
+{t:1.1000,x:5425,y:-3699,z:-305},{t:1.1083,x:5289,y:-3889,z:-321},{t:1.1167,x:5147,y:-4074,z:-337},
+{t:1.1250,x:4999,y:-4253,z:-353},{t:1.1333,x:4844,y:-4427,z:-368},{t:1.1417,x:4683,y:-4596,z:-383},
+{t:1.1500,x:4516,y:-4759,z:-398},{t:1.1583,x:4343,y:-4915,z:-411},{t:1.1667,x:4165,y:-5066,z:-425},
+{t:1.1750,x:3982,y:-5210,z:-438},{t:1.1833,x:3794,y:-5348,z:-450},{t:1.1917,x:3600,y:-5478,z:-461},
+{t:1.2000,x:3403,y:-5602,z:-473},{t:1.2083,x:3201,y:-5719,z:-483},{t:1.2167,x:2995,y:-5829,z:-493},
+{t:1.2250,x:2785,y:-5931,z:-502},{t:1.2333,x:2571,y:-6026,z:-511},{t:1.2417,x:2355,y:-6113,z:-519},
+{t:1.2500,x:2135,y:-6192,z:-526},{t:1.2583,x:1913,y:-6264,z:-533},{t:1.2667,x:1688,y:-6327,z:-539},
+{t:1.2750,x:1461,y:-6383,z:-544},{t:1.2833,x:1232,y:-6430,z:-549},{t:1.2917,x:1002,y:-6470,z:-552},
+{t:1.3000,x:771,y:-6501,z:-556},{t:1.3083,x:538,y:-6524,z:-558},{t:1.3167,x:305,y:-6539,z:-560},
+{t:1.3250,x:71,y:-6545,z:-561},{t:1.3333,x:-162,y:-6544,z:-561},{t:1.3417,x:-396,y:-6533,z:-561},
+{t:1.3500,x:-629,y:-6515,z:-560},{t:1.3583,x:-861,y:-6489,z:-558},{t:1.3667,x:-1092,y:-6454,z:-556},
+{t:1.3750,x:-1322,y:-6411,z:-553},{t:1.3833,x:-1550,y:-6360,z:-549},{t:1.3917,x:-1776,y:-6301,z:-544},
+{t:1.4000,x:-2000,y:-6233,z:-539},{t:1.4083,x:-2221,y:-6159,z:-533},{t:1.4167,x:-2439,y:-6076,z:-527},
+{t:1.4250,x:-2655,y:-5985,z:-519},{t:1.4333,x:-2867,y:-5887,z:-511},{t:1.4417,x:-3075,y:-5782,z:-503},
+{t:1.4500,x:-3280,y:-5669,z:-494},{t:1.4583,x:-3480,y:-5549,z:-484},{t:1.4667,x:-3676,y:-5422,z:-473},
+{t:1.4750,x:-3867,y:-5288,z:-462},{t:1.4833,x:-4054,y:-5147,z:-451},{t:1.4917,x:-4235,y:-5000,z:-438},
+{t:1.5000,x:-4411,y:-4847,z:-426},{t:1.5083,x:-4581,y:-4687,z:-412},{t:1.5167,x:-4746,y:-4522,z:-399},
+{t:1.5250,x:-4904,y:-4351,z:-384},{t:1.5333,x:-5056,y:-4174,z:-369},{t:1.5417,x:-5202,y:-3992,z:-354},
+{t:1.5500,x:-5342,y:-3805,z:-338},{t:1.5583,x:-5474,y:-3613,z:-322},{t:1.5667,x:-5600,y:-3416,z:-306},
+{t:1.5750,x:-5718,y:-3215,z:-289},{t:1.5833,x:-5829,y:-3011,z:-272},{t:1.5917,x:-5933,y:-2802,z:-254},
+{t:1.6000,x:-6030,y:-2590,z:-236},{t:1.6083,x:-6118,y:-2374,z:-218},{t:1.6167,x:-6199,y:-2156,z:-199},
+{t:1.6250,x:-6272,y:-1934,z:-180},{t:1.6333,x:-6338,y:-1711,z:-161},{t:1.6417,x:-6395,y:-1485,z:-142},
+{t:1.6500,x:-6444,y:-1257,z:-123},{t:1.6583,x:-6485,y:-1027,z:-103},{t:1.6667,x:-6517,y:-797,z:-83},
+{t:1.6750,x:-6542,y:-565,z:-63},{t:1.6833,x:-6558,y:-333,z:-44},{t:1.6917,x:-6565,y:-100,z:-24},
+{t:1.7000,x:-6565,y:133,z:-4},{t:1.7083,x:-6556,y:366,z:16},{t:1.7167,x:-6539,y:598,z:36},
+{t:1.7250,x:-6514,y:830,z:56},{t:1.7333,x:-6480,y:1060,z:76},{t:1.7417,x:-6438,y:1289,z:96},
+{t:1.7500,x:-6388,y:1517,z:115},{t:1.7583,x:-6330,y:1742,z:135},{t:1.7667,x:-6264,y:1966,z:154},
+{t:1.7750,x:-6189,y:2187,z:173},{t:1.7833,x:-6108,y:2405,z:192},{t:1.7917,x:-6018,y:2620,z:211},
+{t:1.8000,x:-5921,y:2832,z:229},{t:1.8083,x:-5816,y:3040,z:247},{t:1.8167,x:-5704,y:3244,z:265},
+{t:1.8250,x:-5584,y:3444,z:283},{t:1.8333,x:-5458,y:3640,z:300},{t:1.8417,x:-5324,y:3832,z:316},
+{t:1.8500,x:-5184,y:4018,z:333},{t:1.8583,x:-5038,y:4199,z:348},{t:1.8667,x:-4885,y:4375,z:364},
+{t:1.8750,x:-4725,y:4546,z:379},{t:1.8833,x:-4560,y:4710,z:393},{t:1.8917,x:-4389,y:4869,z:407},
+{t:1.9000,x:-4212,y:5022,z:421},{t:1.9083,x:-4031,y:5168,z:434},{t:1.9167,x:-3844,y:5308,z:446},
+{t:1.9250,x:-3652,y:5441,z:458},{t:1.9333,x:-3455,y:5567,z:469},{t:1.9417,x:-3254,y:5686,z:480},
+{t:1.9500,x:-3049,y:5797,z:490},{t:1.9583,x:-2841,y:5902,z:500},{t:1.9667,x:-2628,y:5999,z:508},
+{t:1.9750,x:-2412,y:6088,z:516},{t:1.9833,x:-2194,y:6170,z:524},{t:1.9917,x:-1972,y:6244,z:531},
+{t:2.0000,x:-1748,y:6310,z:537},{t:2.0083,x:-1522,y:6368,z:543},{t:2.0167,x:-1293,y:6418,z:547},
+{t:2.0250,x:-1064,y:6460,z:551},{t:2.0358,x:-927,y:6497,z:555},{t:2.0442,x:-1243,y:6502,z:555},
+{t:2.0525,x:-1558,y:6499,z:554},{t:2.0608,x:-1870,y:6489,z:552},{t:2.0692,x:-2181,y:6471,z:550},
+{t:2.0775,x:-2489,y:6445,z:547},{t:2.0858,x:-2794,y:6413,z:543},{t:2.0942,x:-3096,y:6374,z:539},
+{t:2.1025,x:-3396,y:6329,z:535},{t:2.1108,x:-3692,y:6278,z:530},{t:2.1192,x:-3985,y:6221,z:524},
+{t:2.1275,x:-4274,y:6158,z:518},{t:2.1358,x:-4559,y:6090,z:512},{t:2.1442,x:-4841,y:6018,z:505},
+{t:2.1525,x:-5119,y:5940,z:498},{t:2.1608,x:-5393,y:5859,z:490},{t:2.1692,x:-5664,y:5773,z:482},
+{t:2.1775,x:-5931,y:5683,z:474},{t:2.1858,x:-6193,y:5590,z:465},{t:2.1942,x:-6453,y:5493,z:456},
+{t:2.2275,x:-7451,y:5075,z:418},{t:2.2608,x:-8392,y:4617,z:377},{t:2.2942,x:-9278,y:4129,z:333},
+{t:2.3275,x:-10113,y:3619,z:287},{t:2.3608,x:-10901,y:3091,z:240},{t:2.3942,x:-11646,y:2552,z:192},
+{t:2.4275,x:-12352,y:2003,z:143},{t:2.4608,x:-13022,y:1449,z:94},{t:2.4942,x:-13658,y:891,z:45},
+{t:2.5275,x:-14264,y:331,z:-4},{t:2.5608,x:-14842,y:-230,z:-54},{t:2.5942,x:-15393,y:-791,z:-103},
+{t:2.6275,x:-15921,y:-1350,z:-152},{t:2.6608,x:-16426,y:-1907,z:-201},{t:2.6942,x:-16910,y:-2462,z:-250},
+{t:2.7275,x:-17375,y:-3014,z:-298},{t:2.7608,x:-17821,y:-3563,z:-346},{t:2.7942,x:-18251,y:-4109,z:-394},
+{t:2.8275,x:-18664,y:-4650,z:-442},{t:2.8608,x:-19063,y:-5189,z:-489},{t:2.8942,x:-19447,y:-5723,z:-535},
+{t:2.9275,x:-19818,y:-6253,z:-582},{t:2.9608,x:-20176,y:-6780,z:-628},{t:2.9942,x:-20522,y:-7302,z:-673},
+{t:3.0275,x:-20857,y:-7820,z:-718},{t:3.0608,x:-21181,y:-8335,z:-763},{t:3.0942,x:-21494,y:-8845,z:-808},
+{t:3.1275,x:-21798,y:-9351,z:-852},{t:3.1608,x:-22093,y:-9853,z:-896},{t:3.1942,x:-22378,y:-10351,z:-939},
+{t:3.2275,x:-22655,y:-10846,z:-982},{t:3.2608,x:-22924,y:-11336,z:-1025},{t:3.2942,x:-23185,y:-11822,z:-1067},
+{t:3.3275,x:-23439,y:-12305,z:-1109},{t:3.3608,x:-23685,y:-12784,z:-1150},{t:3.3942,x:-23924,y:-13259,z:-1192},
+{t:3.4275,x:-24157,y:-13730,z:-1233},{t:3.4608,x:-24383,y:-14198,z:-1273},
+];
+
 let WAYPOINTS = [
   { t: 0.0, x: 0, y: 6571, z: 0 },
   { t: 0.5, x: -3000, y: 8000, z: 200 },
@@ -629,90 +736,11 @@ async function applyTrajectoryData(entries) {
 }
 
 function anchorTrajectory() {
-  console.log('anchorTrajectory() called');
-  // ============================================================
-  // BACKWARD PROPAGATION: Reconstruct pre-Horizons launch trajectory
-  // Horizons starts ~3.4h after launch (post-TLI). We propagate backwards
-  // using 2-body Keplerian dynamics to reconstruct:
-  //   HEO outbound → perigee (burns) → LEO → launch from KSC
-  // ============================================================
-  const GM = 398600.4418; // km³/s², Earth gravitational parameter
-  const firstH = horizonsTrajectory[0]; // has position + velocity
-  if (!firstH || firstH.vx === undefined) {
-    console.log('anchorTrajectory: no velocity data, simple anchor');
-    // No velocity data, just anchor to surface
-    const fd = new THREE.Vector3(WAYPOINTS[0].x, WAYPOINTS[0].y, WAYPOINTS[0].z).normalize();
-    WAYPOINTS.unshift({ t: 0, x: fd.x*(EARTH_RADIUS+200), y: fd.y*(EARTH_RADIUS+200), z: fd.z*(EARTH_RADIUS+200) });
-  } else {
-    console.log('anchorTrajectory: backward propagation, firstH.t=', firstH.t, 'vx=', firstH.vx);
-    // Backward propagation from first Horizons point
-    let rx = firstH.x, ry = firstH.y, rz = firstH.z;
-    let vx = firstH.vx, vy = firstH.vy, vz = firstH.vz;
-    let tH = firstH.t; // hours after launch
-    const dt = -10; // seconds, backward
-    const preLaunchPts = [];
-
-    // Phase 1: Propagate backwards on the HEO until we reach perigee (<250km altitude)
-    let lastAlt = Math.sqrt(rx*rx + ry*ry + rz*rz) - EARTH_RADIUS;
-    let prevAlt = lastAlt;
-    while (tH > 0 && lastAlt > 200) {
-      const r = Math.sqrt(rx*rx + ry*ry + rz*rz);
-      const a = -GM / (r*r*r);
-      // Velocity Verlet backward step
-      const ax = a*rx, ay = a*ry, az = a*rz;
-      vx += ax*dt; vy += ay*dt; vz += az*dt;
-      rx += vx*dt; ry += vy*dt; rz += vz*dt;
-      tH += dt/3600;
-      lastAlt = Math.sqrt(rx*rx + ry*ry + rz*rz) - EARTH_RADIUS;
-      // Sample every ~30 seconds
-      if (preLaunchPts.length === 0 || (preLaunchPts[preLaunchPts.length-1].t - tH) > 0.008) {
-        preLaunchPts.push({ t: tH, x: rx, y: ry, z: rz });
-      }
-      if (lastAlt > prevAlt && lastAlt < 1000) break; // ascending from perigee, stop
-      prevAlt = lastAlt;
-    }
-
-    // Phase 2: At perigee of HEO (~185km), switch to circular LEO
-    // LEO orbit: keep same position, compute circular velocity
-    const rLeo = Math.sqrt(rx*rx + ry*ry + rz*rz);
-    const vCirc = Math.sqrt(GM / rLeo); // circular orbit speed
-    // Orbit plane normal from current position and velocity
-    const hx = ry*vz - rz*vy, hy = rz*vx - rx*vz, hz = rx*vy - ry*vx;
-    const hMag = Math.sqrt(hx*hx + hy*hy + hz*hz);
-    const hnx = hx/hMag, hny = hy/hMag, hnz = hz/hMag;
-    // Tangential direction (perpendicular to r in orbit plane, prograde)
-    const rMag = Math.sqrt(rx*rx + ry*ry + rz*rz);
-    const rnx = rx/rMag, rny = ry/rMag, rnz = rz/rMag;
-    // Prograde tangent = h × r_hat
-    let tx = hny*rnz - hnz*rny, ty = hnz*rnx - hnx*rnz, tz = hnx*rny - hny*rnx;
-    const tMag = Math.sqrt(tx*tx + ty*ty + tz*tz);
-    tx /= tMag; ty /= tMag; tz /= tMag;
-    // Set circular velocity
-    vx = -tx * vCirc; vy = -ty * vCirc; vz = -tz * vCirc; // negative because going backward
-
-    // Continue backward on LEO for ~1.5 orbits (until reaching KSC longitude)
-    const leoPeriodSec = 2 * Math.PI * Math.sqrt(rLeo*rLeo*rLeo / GM);
-    const leoSteps = Math.ceil(1.8 * leoPeriodSec / Math.abs(dt)); // ~1.8 orbits worth
-    for (let step = 0; step < leoSteps && tH > -0.1; step++) {
-      const r = Math.sqrt(rx*rx + ry*ry + rz*rz);
-      const a = -GM / (r*r*r);
-      vx += a*rx*dt; vy += a*ry*dt; vz += a*rz*dt;
-      rx += vx*dt; ry += vy*dt; rz += vz*dt;
-      tH += dt/3600;
-      if (step % 3 === 0) {
-        preLaunchPts.push({ t: tH, x: rx, y: ry, z: rz });
-      }
-    }
-
-    // Sort pre-launch points chronologically and prepend to WAYPOINTS
-    preLaunchPts.sort((a,b) => a.t - b.t);
-    // Filter out points before t=0 (before launch) but keep a small buffer
-    const filtered = preLaunchPts.filter(p => p.t >= -0.05);
-    // Set t=0 for the first point (launch)
-    if (filtered.length > 0) filtered[0].t = 0;
-    console.log('anchorTrajectory: prepending', filtered.length, 'backward-propagated points. First alt:', Math.round(Math.sqrt(filtered[0].x**2+filtered[0].y**2+filtered[0].z**2)-EARTH_RADIUS), 'km. Last alt:', Math.round(Math.sqrt(filtered[filtered.length-1].x**2+filtered[filtered.length-1].y**2+filtered[filtered.length-1].z**2)-EARTH_RADIUS), 'km');
-    WAYPOINTS = filtered.concat(WAYPOINTS);
-  }
+  // Prepend precomputed launch trajectory (LEO→HEO→TLI, t=0 to ~3.5h)
+  // Uses only points before the first Horizons data point
+  const firstT = WAYPOINTS[0].t;
+  const launchPts = PRECOMPUTED_LAUNCH.filter(p => p.t < firstT);
+  WAYPOINTS = launchPts.concat(WAYPOINTS);
 
   // Anchor return to Earth surface
   const last = WAYPOINTS[WAYPOINTS.length - 1];
