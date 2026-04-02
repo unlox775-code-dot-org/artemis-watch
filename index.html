@@ -564,6 +564,14 @@ async function fetchFullTrajectory() {
       if (entries.length > 20) {
         horizonsTrajectory = entries;
         WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
+        // Anchor trajectory to Earth's surface at launch and return
+        const first = WAYPOINTS[0];
+        const firstDir = new THREE.Vector3(first.x, first.y, first.z).normalize();
+        WAYPOINTS.unshift({ t: 0, x: firstDir.x*EARTH_RADIUS, y: firstDir.y*EARTH_RADIUS, z: firstDir.z*EARTH_RADIUS });
+        const last = WAYPOINTS[WAYPOINTS.length-1];
+        const lastDir = new THREE.Vector3(last.x, last.y, last.z).normalize();
+        const endT = last.t + 2; // ~2 hours after last data point
+        WAYPOINTS.push({ t: endT, x: lastDir.x*EARTH_RADIUS, y: lastDir.y*EARTH_RADIUS, z: lastDir.z*EARTH_RADIUS });
         buildTrajectoryLine();
         buildMoonOrbitLine();
         initCameraOrientation();
