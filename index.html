@@ -355,7 +355,7 @@ async function fetchFullTrajectory() {
   try {
     const params = new URLSearchParams({
       format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
-      START_TIME:"'2026-04-02 02:00'", STOP_TIME:"'2026-04-11 01:00'",
+      START_TIME:"'2026-04-02 02:00'", STOP_TIME:"'2026-04-10 23:00'",
       STEP_SIZE:"'1 h'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
     });
     const json = await horizonsFetch(params.toString());
@@ -379,7 +379,7 @@ async function fetchFullTrajectoryRetry() {
     try {
       const params = new URLSearchParams({
         format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
-        START_TIME:"'2026-04-02 02:00'", STOP_TIME:"'2026-04-11 01:00'",
+        START_TIME:"'2026-04-02 02:00'", STOP_TIME:"'2026-04-10 23:00'",
         STEP_SIZE:"'2 h'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
       });
       const json = await horizonsFetch(params.toString());
