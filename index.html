@@ -586,33 +586,11 @@ async function fetchFullTrajectory() {
 }
 
 function anchorTrajectory() {
-  // Synthesize LEO orbit before first data point
-  const firstT = WAYPOINTS[0].t;
-  if (firstT > 0.5) {
-    const leoR = EARTH_RADIUS + 200;
-    const fp = new THREE.Vector3(WAYPOINTS[0].x, WAYPOINTS[0].y, WAYPOINTS[0].z);
-    const fpDir = fp.clone().normalize();
-    const sp = new THREE.Vector3(WAYPOINTS[1].x, WAYPOINTS[1].y, WAYPOINTS[1].z);
-    const orbitNormal = new THREE.Vector3().crossVectors(fp, sp).normalize();
-    const orbitX = fpDir.clone();
-    const orbitY = new THREE.Vector3().crossVectors(orbitNormal, orbitX).normalize();
-    const endAngle = Math.atan2(fp.dot(orbitY), fp.dot(orbitX));
-    const nLeoPoints = Math.max(30, Math.round(firstT / 0.03));
-    const leoPoints = [];
-    const totalSweep = 1.5 * 2 * Math.PI;
-    for (let i = 0; i < nLeoPoints; i++) {
-      const tFrac = i / nLeoPoints;
-      const tH = tFrac * firstT;
-      const rFrac = tFrac * tFrac * tFrac; // cubic ramp - stay in LEO longer
-      const r = leoR + (fp.length() - leoR) * rFrac;
-      const angle = endAngle - totalSweep * (1 - tFrac);
-      const x = r * (Math.cos(angle) * orbitX.x + Math.sin(angle) * orbitY.x);
-      const y = r * (Math.cos(angle) * orbitX.y + Math.sin(angle) * orbitY.y);
-      const z = r * (Math.cos(angle) * orbitX.z + Math.sin(angle) * orbitY.z);
-      leoPoints.push({ t: tH, x, y, z });
-    }
-    WAYPOINTS = leoPoints.concat(WAYPOINTS);
-  }
+  // JPL Horizons has no data before ~3.4h post-launch (LEO/TLI phase not modeled).
+  // Anchor start: draw a line from Earth surface to first data point (shows departure direction).
+  const first = WAYPOINTS[0];
+  const firstDir = new THREE.Vector3(first.x, first.y, first.z).normalize();
+  WAYPOINTS.unshift({ t: 0, x: firstDir.x * (EARTH_RADIUS + 200), y: firstDir.y * (EARTH_RADIUS + 200), z: firstDir.z * (EARTH_RADIUS + 200) });
   // Anchor return to Earth surface
   const last = WAYPOINTS[WAYPOINTS.length - 1];
   const lastDir = new THREE.Vector3(last.x, last.y, last.z).normalize();
@@ -1494,7 +1472,7 @@ function computeGraphData() {
   graphData = { speed, earth, moon, maxT };
 }
 
-function drawGraph(canvasEl, data, metHours, unitFactor) {
+function drawGraph(canvasEl, data, metHours, unitFactor, unitLabel) {
   const rect = canvasEl.parentElement.getBoundingClientRect();
   const dpr = Math.min(window.devicePixelRatio, 2);
   const w = Math.floor(rect.width);
@@ -1513,7 +1491,13 @@ function drawGraph(canvasEl, data, metHours, unitFactor) {
   for (const d of data) maxV = Math.max(maxV, d.v * unitFactor);
   if (maxV === 0) maxV = 1;
 
-  const pad = { l: 4, r: 4, t: 4, b: 14 };
+  const pad = { l: 4, r: 4, t: 14, b: 14 };
+
+  // Max label at top
+  ctx.fillStyle = '#6a9abb';
+  ctx.font = '9px "Share Tech Mono", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('Peak: ' + formatNum(maxV) + ' ' + (unitLabel || ''), pad.l, 10);
   const gw = w - pad.l - pad.r;
   const gh = h - pad.t - pad.b;
 
@@ -1613,8 +1597,8 @@ function animate() {
   const state = getMissionState();
   const t = performance.now() * 0.001;
 
-  // Body scales (shrink Earth 3% in to-scale so tight LEO orbit clears visually)
-  const bs = toScale ? 0.97 : BODY_SCALE_EX;
+  // Body scales
+  const bs = toScale ? 1 : BODY_SCALE_EX;
   earthGroup.scale.setScalar(EARTH_RADIUS * bs);
   moonGroup.scale.setScalar(MOON_RADIUS * bs);
   // In to-scale mode, shrink atmosphere glow so it doesn't visually clip near-Earth orbits
