@@ -990,8 +990,7 @@ const earthMainMesh = new THREE.Mesh(
   new THREE.SphereGeometry(1, 64, 64),
   new THREE.MeshPhongMaterial({color:0x1a5276, emissive:0x0a1a2a, specular:0x333333, shininess:25})
 );
-// Tilt so poles align with scene Z (ICRF polar axis)
-earthMainMesh.rotation.x = -Math.PI / 2;
+// Tilt + GMST rotation applied via quaternion in animation loop
 earthGroup.add(earthMainMesh);
 const earthAtmo1 = new THREE.Mesh(new THREE.SphereGeometry(1.04,48,48), new THREE.MeshBasicMaterial({color:0x4488ff, transparent:true, opacity:0.12, side:THREE.BackSide}));
 const earthAtmo2 = new THREE.Mesh(new THREE.SphereGeometry(1.15,32,32), new THREE.MeshBasicMaterial({color:0x3366cc, transparent:true, opacity:0.06, side:THREE.BackSide}));
@@ -1638,9 +1637,12 @@ function animate() {
   }
   moonGroup.position.copy(state.moonPos);
 
-  // Earth sidereal rotation (GMST gives angle of Greenwich from vernal equinox)
+  // Earth sidereal rotation: apply GMST via quaternion around scene Z (polar axis after tilt)
   const gmst = getGMST(new Date());
-  earthMainMesh.rotation.y = gmst;
+  // Reset to base tilt, then apply GMST around Z (the polar axis in scene coords)
+  earthMainMesh.quaternion.setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2);
+  const gmstQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), gmst);
+  earthMainMesh.quaternion.premultiply(gmstQuat);
 
   // Sun position update
   const sunPos = getSunPosition(new Date());
