@@ -1441,9 +1441,10 @@ function computeGraphData() {
     const pos = interpolateTrajectory(tH);
     const mPos = moonPosition(tH);
 
-    // Velocity (km/s)
+    // Velocity (km/s) — only interpolate within Horizons data range
     let spd;
-    if (horizonsTrajectory?.length > 1) {
+    if (horizonsTrajectory?.length > 1 &&
+        tH >= horizonsTrajectory[0].t && tH <= horizonsTrajectory[horizonsTrajectory.length-1].t) {
       let idx = 0;
       for (let j = 0; j < horizonsTrajectory.length - 1; j++) {
         if (tH >= horizonsTrajectory[j].t && tH <= horizonsTrajectory[j + 1].t) { idx = j; break; }
@@ -1791,7 +1792,8 @@ function animate() {
       const canvas = g.querySelector('canvas');
       const type = g.id.replace('graph-', '');
       const data = graphData[type];
-      if (data) drawGraph(canvas, data, state.metHours, uf);
+      const unitLabel = type === 'speed' ? su : du;
+      if (data) drawGraph(canvas, data, state.metHours, uf, unitLabel);
     });
   }
 
