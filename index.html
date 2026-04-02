@@ -795,11 +795,10 @@ function anchorTrajectory() {
   const launchPts = PRECOMPUTED_LAUNCH.filter(p => p.t < firstT);
   WAYPOINTS = launchPts.concat(WAYPOINTS);
 
-  // Anchor return to Earth surface
-  const last = WAYPOINTS[WAYPOINTS.length - 1];
-  const lastDir = new THREE.Vector3(last.x, last.y, last.z).normalize();
-  const endT = last.t + 2;
-  WAYPOINTS.push({ t: endT, x: lastDir.x * EARTH_RADIUS, y: lastDir.y * EARTH_RADIUS, z: lastDir.z * EARTH_RADIUS });
+  // Append precomputed reentry trajectory to splashdown off San Diego
+  const lastT = WAYPOINTS[WAYPOINTS.length - 1].t;
+  const reentryPts = PRECOMPUTED_REENTRY.filter(p => p.t > lastT);
+  WAYPOINTS = WAYPOINTS.concat(reentryPts);
 }
 
 async function fetchFullTrajectoryRetry() {
