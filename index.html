@@ -169,6 +169,14 @@
     #subpoint-info { font-size: 9px; }
     #country-name { font-size: 9px; }
 
+    /* Shrink 3D overlay labels */
+    .body-label { font-size: 9px !important; letter-spacing: 1px !important; }
+    .planet-label { font-size: 7px; letter-spacing: 1px; }
+    #sc-marker .sc-label-tag { font-size: 9px; letter-spacing: 1px; }
+    #sc-marker .sc-ring { width: 28px; height: 28px; }
+    #sc-marker .sc-ring2 { width: 44px; height: 44px; }
+    #sc-marker .sc-dot { width: 8px; height: 8px; }
+
     #timeline { bottom: 10px; gap: 2px; }
     .day-bar { width: 20px; }
     .day-label { font-size: 8px; }
@@ -931,8 +939,10 @@ const earthMainMesh = new THREE.Mesh(
 // Tilt so poles align with scene Z (ICRF polar axis)
 earthMainMesh.rotation.x = -Math.PI / 2;
 earthGroup.add(earthMainMesh);
-earthGroup.add((() => { const m = new THREE.Mesh(new THREE.SphereGeometry(1.04,48,48), new THREE.MeshBasicMaterial({color:0x4488ff, transparent:true, opacity:0.12, side:THREE.BackSide})); return m; })());
-earthGroup.add((() => { const m = new THREE.Mesh(new THREE.SphereGeometry(1.15,32,32), new THREE.MeshBasicMaterial({color:0x3366cc, transparent:true, opacity:0.06, side:THREE.BackSide})); return m; })());
+const earthAtmo1 = new THREE.Mesh(new THREE.SphereGeometry(1.04,48,48), new THREE.MeshBasicMaterial({color:0x4488ff, transparent:true, opacity:0.12, side:THREE.BackSide}));
+const earthAtmo2 = new THREE.Mesh(new THREE.SphereGeometry(1.15,32,32), new THREE.MeshBasicMaterial({color:0x3366cc, transparent:true, opacity:0.06, side:THREE.BackSide}));
+earthGroup.add(earthAtmo1);
+earthGroup.add(earthAtmo2);
 scene.add(earthGroup);
 
 // Moon
@@ -1402,6 +1412,10 @@ function animate() {
   const bs = toScale ? 1 : BODY_SCALE_EX;
   earthGroup.scale.setScalar(EARTH_RADIUS * bs);
   moonGroup.scale.setScalar(MOON_RADIUS * bs);
+  // In to-scale mode, shrink atmosphere glow so it doesn't visually clip near-Earth orbits
+  const atmoScale = toScale ? 0.5 : 1;
+  earthAtmo1.scale.setScalar(1 + (0.04 * atmoScale));
+  earthAtmo2.scale.setScalar(1 + (0.15 * atmoScale));
   moonGroup.position.copy(state.moonPos);
 
   // Earth sidereal rotation (GMST gives angle of Greenwich from vernal equinox)
@@ -1487,11 +1501,12 @@ function animate() {
     const extent = Math.max(maxX-minX, maxY-minY, maxZ-minZ);
     camDist = extent * 1.3;
     // Scale up camera distance for portrait/narrow aspect ratios
-    // At 16:9 (1.78) → factor 1.0; at 9:16 (0.56) → factor ~2.0
+    // At 16:9 (1.78) → factor 1.0; at 9:16 (0.56) → factor ~1.5
     const aspect = window.innerWidth / window.innerHeight;
     const landscapeRef = 16 / 9;
     if (aspect < landscapeRef) {
-      camDist *= landscapeRef / aspect;
+      const rawScale = landscapeRef / aspect;
+      camDist *= 1 + (rawScale - 1) * 0.5; // half the adjustment
     }
   } else {
     camCenter.set(state.moonPos.x * 0.4, state.moonPos.y * 0.4, 0);
