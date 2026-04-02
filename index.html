@@ -1425,24 +1425,20 @@ function animate() {
     moonLbl.style.display = 'block';
   } else { moonLbl.style.display = 'none'; }
 
-  // Planet labels (update every ~10 frames for performance)
-  if (!animate._plFrame) animate._plFrame = 0;
-  if (animate._plFrame++ % 10 === 0) {
-    // Sun label
-    const sunProj = projectToScreen(sunMesh.position);
-    const sunLbl = document.getElementById('sun-label');
-    if (sunProj.visible && showLabels) {
-      sunLbl.style.left = sunProj.x + 'px'; sunLbl.style.top = (sunProj.y - 20) + 'px'; sunLbl.style.display = 'block';
-    } else { sunLbl.style.display = 'none'; }
+  // Planet labels
+  const sunProj = projectToScreen(sunMesh.position);
+  const sunLbl = document.getElementById('sun-label');
+  if (sunProj.visible && showLabels) {
+    sunLbl.style.left = sunProj.x + 'px'; sunLbl.style.top = (sunProj.y - 20) + 'px'; sunLbl.style.display = 'block';
+  } else { sunLbl.style.display = 'none'; }
 
-    for (const name of ['mercury','venus','mars','jupiter','saturn']) {
-      const mesh = planetMeshes[name];
-      const proj = projectToScreen(mesh.position);
-      const lbl = document.getElementById(name + '-label');
-      if (proj.visible && showLabels) {
-        lbl.style.left = proj.x + 'px'; lbl.style.top = (proj.y - 10) + 'px'; lbl.style.display = 'block';
-      } else { lbl.style.display = 'none'; }
-    }
+  for (const name of ['mercury','venus','mars','jupiter','saturn']) {
+    const mesh = planetMeshes[name];
+    const proj = projectToScreen(mesh.position);
+    const lbl = document.getElementById(name + '-label');
+    if (proj.visible && showLabels) {
+      lbl.style.left = proj.x + 'px'; lbl.style.top = (proj.y - 10) + 'px'; lbl.style.display = 'block';
+    } else { lbl.style.display = 'none'; }
   }
 
   // Camera: auto-center on trajectory bounding box
