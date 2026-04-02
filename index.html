@@ -283,7 +283,7 @@
 </div>
 
 <div id="datasource">
-  Trajectory: JPL Horizons<br>
+  <span id="datasource-label">Trajectory: JPL Horizons</span><br>
   Object: <b>-1024</b> (Orion)<br>
   <span id="last-fetch">Loading...</span><br>
   <a href="https://www.nasa.gov/trackartemis" target="_blank">NASA AROW &rarr;</a>
@@ -296,6 +296,7 @@
   <strong>MS2</strong> Jeremy Hansen
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script type="importmap">
 {
   "imports": {
@@ -732,6 +733,104 @@ async function horizonsFetch(params) {
   catch { return await (await fetch('https://corsproxy.io/?'+encodeURIComponent(url))).json(); }
 }
 
+// ============================================================
+// AROW OEM (NASA/JSC Flight Dynamics — primary data source)
+// ============================================================
+const AROW_PAGE = 'https://www.nasa.gov/missions/artemis/artemis-2/track-nasas-artemis-ii-mission-in-real-time/';
+let arowVersion = null, arowCreationDate = null, arowZipUrl = null;
+
+function parseOEM(text) {
+  const lines = text.split('\n');
+  const creationLine = lines.find(l => l.startsWith('CREATION_DATE'));
+  const creation = creationLine ? creationLine.split('=')[1].trim() : null;
+  // OEM is in EME2000 (equatorial J2000) — rotate to ecliptic J2000 to match Horizons
+  const obliquity = 23.4392911 * Math.PI / 180; // J2000 obliquity
+  const cosE = Math.cos(obliquity), sinE = Math.sin(obliquity);
+  const entries = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.match(/^2\d{3}-/)) continue;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length < 7) continue;
+    const date = new Date(parts[0] + 'Z');
+    const t = (date - LAUNCH_UTC) / 3600000;
+    const xEq = parseFloat(parts[1]), yEq = parseFloat(parts[2]), zEq = parseFloat(parts[3]);
+    const vxEq = parseFloat(parts[4]), vyEq = parseFloat(parts[5]), vzEq = parseFloat(parts[6]);
+    // Rotate equatorial → ecliptic (rotation around X by +obliquity)
+    entries.push({
+      t,
+      x: xEq,
+      y: yEq * cosE + zEq * sinE,
+      z: -yEq * sinE + zEq * cosE,
+      vx: vxEq,
+      vy: vyEq * cosE + vzEq * sinE,
+      vz: -vyEq * sinE + vzEq * cosE,
+    });
+  }
+  return { creation, entries };
+}
+
+async function fetchAROW() {
+  try {
+    // Step 1: Scrape NASA page for latest OEM ZIP URL (needs CORS proxy)
+    const pageResp = await fetch('https://corsproxy.io/?' + encodeURIComponent(AROW_PAGE));
+    const pageHtml = await pageResp.text();
+    const zipMatch = pageHtml.match(/href="([^"]*artemis-ii-oem[^"]*\.zip[^"]*)"/i);
+    if (!zipMatch) { console.warn('AROW: no OEM ZIP link found on page'); return false; }
+    const zipUrl = zipMatch[1];
+
+    // Check version — skip if same as what we already have
+    const versionMatch = zipUrl.match(/v(\d+)/i);
+    const version = versionMatch ? versionMatch[1] : zipUrl;
+    if (version === arowVersion && horizonsTrajectory) {
+      console.log('AROW: same version (v' + version + '), skipping');
+      return true;
+    }
+
+    // Step 2: Download ZIP directly from nasa.gov (no proxy needed)
+    console.log('AROW: downloading', zipUrl);
+    const zipResp = await fetch(zipUrl);
+    if (!zipResp.ok) throw new Error('ZIP download failed: ' + zipResp.status);
+    const zipBuf = await zipResp.arrayBuffer();
+
+    // Step 3: Unzip with JSZip
+    const zip = await JSZip.loadAsync(zipBuf);
+    const ascName = Object.keys(zip.files).find(f => f.endsWith('.asc'));
+    if (!ascName) throw new Error('No .asc file in ZIP');
+    const oemText = await zip.files[ascName].async('string');
+
+    // Step 4: Parse OEM
+    const { creation, entries } = parseOEM(oemText);
+    if (entries.length < 100) throw new Error('Too few OEM points: ' + entries.length);
+
+    arowVersion = version;
+    arowCreationDate = creation;
+    arowZipUrl = zipUrl;
+    console.log(`AROW: v${version}, created ${creation}, ${entries.length} data points`);
+
+    // Step 5: Apply as trajectory (replaces Horizons data — no need for fine perigee fetch, OEM is already high-res)
+    horizonsTrajectory = entries;
+    WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
+    anchorTrajectory();
+    buildTrajectoryLine();
+    buildMoonOrbitLine();
+    initCameraOrientation();
+    computeGraphData();
+    console.log('AROW trajectory applied:', entries.length, 'pts +', WAYPOINTS.length - entries.length, 'propagated');
+
+    // Update datasource display
+    const creationTime = creation ? new Date(creation + 'Z') : null;
+    const freshness = creationTime ? creationTime.toLocaleString() : 'v' + version;
+    document.getElementById('last-fetch').textContent = `AROW: ${freshness}`;
+    document.getElementById('datasource-label').textContent = 'AROW/JSC Flight Dynamics';
+
+    return true;
+  } catch(e) {
+    console.warn('AROW fetch failed:', e.message);
+    return false;
+  }
+}
+
 async function fetchFullTrajectory() {
   try {
     // Main trajectory at 30-min resolution
@@ -871,12 +970,22 @@ async function fetchMoonEphemeris() {
 
 window._debug = { get hz() { return horizonsTrajectory; }, get wp() { return WAYPOINTS; }, get live() { return liveData; }, get moon() { return moonEphemeris; } };
 
-fetchFullTrajectoryRetry().then(() => {
-  console.log('Trajectory fetch done. horizonsTrajectory:', horizonsTrajectory ? horizonsTrajectory.length + ' pts' : 'null');
+// Primary: try AROW (JSC Flight Dynamics), fallback to Horizons
+(async () => {
+  const arowOk = await fetchAROW();
+  if (!arowOk) {
+    console.log('AROW unavailable, falling back to Horizons...');
+    await fetchFullTrajectoryRetry();
+  }
+  console.log('Trajectory loaded:', horizonsTrajectory ? horizonsTrajectory.length + ' pts' : 'null',
+    arowOk ? '(AROW)' : '(Horizons)');
   fetchCurrentPosition();
   fetchMoonEphemeris();
-});
+})();
 setInterval(fetchCurrentPosition, 15*60*1000);
+// Check for new AROW versions every 30 minutes
+setInterval(fetchAROW, 30*60*1000);
+
 
 // ============================================================
 // WORLD MAP DATA (load GeoJSON for real country boundaries)
@@ -2015,17 +2124,25 @@ function animate() {
   if (animate._tickerFrame++ % 300 === 0) {
     const ticker = document.getElementById('live-ticker');
     if (liveData && lastFetchTime) {
-      const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
-      const min = Math.floor(ago / 60), sec = ago % 60;
-      const agoStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
       const liveSpeed = Math.sqrt(liveData.vx**2 + liveData.vy**2 + liveData.vz**2) * 3600;
       const liveDist = Math.sqrt(liveData.x**2 + liveData.y**2 + liveData.z**2) - 6371;
       const luf = useMiles ? KM_TO_MI : 1;
       const lsu = useMiles ? 'mph' : 'km/h';
       const ldu = useMiles ? 'mi' : 'km';
-      ticker.innerHTML = `<span class="ticker-time">Live ${agoStr} ago</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
+      // Show data source and freshness
+      let srcLabel;
+      if (arowCreationDate) {
+        const cd = new Date(arowCreationDate + 'Z');
+        const agoMin = Math.round((Date.now() - cd.getTime()) / 60000);
+        srcLabel = agoMin < 120 ? `AROW ${agoMin}m ago` : `AROW ${Math.round(agoMin/60)}h ago`;
+      } else {
+        const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
+        const min = Math.floor(ago / 60), sec = ago % 60;
+        srcLabel = `Horizons ${min > 0 ? min + 'm ' + sec + 's' : sec + 's'} ago`;
+      }
+      ticker.innerHTML = `<span class="ticker-time">${srcLabel}</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
     } else {
-      ticker.innerHTML = '<span class="ticker-time">Awaiting live telemetry...</span>';
+      ticker.innerHTML = '<span class="ticker-time">Awaiting telemetry...</span>';
     }
   }
 
