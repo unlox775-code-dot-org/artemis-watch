@@ -219,17 +219,20 @@
 </div>
 
 <div id="telemetry">
-  <div class="telem-card">
+  <div class="telem-card" data-graph="speed">
     <div class="telem-label">Velocity</div>
     <div><span class="telem-value" id="val-speed">---</span><span class="telem-unit" id="unit-speed">mph</span></div>
+    <div class="telem-graph" id="graph-speed"><canvas></canvas></div>
   </div>
-  <div class="telem-card">
+  <div class="telem-card" data-graph="earth">
     <div class="telem-label">Distance from Earth</div>
     <div><span class="telem-value" id="val-earth">---</span><span class="telem-unit" id="unit-earth">miles</span></div>
+    <div class="telem-graph" id="graph-earth"><canvas></canvas></div>
   </div>
-  <div class="telem-card">
+  <div class="telem-card" data-graph="moon">
     <div class="telem-label">Distance from Moon</div>
     <div><span class="telem-value" id="val-moon">---</span><span class="telem-unit" id="unit-moon">miles</span></div>
+    <div class="telem-graph" id="graph-moon"><canvas></canvas></div>
   </div>
 </div>
 
