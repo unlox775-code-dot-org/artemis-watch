@@ -354,9 +354,28 @@ function getSubPoint(tHours) {
 // ============================================================
 // TRAJECTORY MODEL
 // ============================================================
-// Moon position - uses trajectory data to estimate when available
+// Moon position - uses Horizons ephemeris when available
+let moonEphemeris = null;
 let moonPosCache = null;
+
 function moonPosition(tHours) {
+  // Use actual Horizons Moon ephemeris if available
+  if (moonEphemeris && moonEphemeris.length > 1) {
+    const t = Math.max(moonEphemeris[0].t, Math.min(moonEphemeris[moonEphemeris.length-1].t, tHours));
+    let i = 0;
+    for (let j = 0; j < moonEphemeris.length - 1; j++) {
+      if (t >= moonEphemeris[j].t && t <= moonEphemeris[j+1].t) { i = j; break; }
+    }
+    const a = moonEphemeris[i], b = moonEphemeris[Math.min(i+1, moonEphemeris.length-1)];
+    const frac = (b.t - a.t) > 0 ? (t - a.t) / (b.t - a.t) : 0;
+    return new THREE.Vector3(
+      a.x + (b.x - a.x) * frac,
+      a.y + (b.y - a.y) * frac,
+      a.z + (b.z - a.z) * frac
+    );
+  }
+
+  // Fallback: estimate from trajectory data
   if (horizonsTrajectory && !moonPosCache) {
     let maxDist = 0, farthest = null;
     for (const e of horizonsTrajectory) {
@@ -564,11 +583,32 @@ async function fetchCurrentPosition() {
   }
 }
 
-window._debug = { get hz() { return horizonsTrajectory; }, get wp() { return WAYPOINTS; }, get live() { return liveData; } };
+// Fetch Moon ephemeris from Horizons (object 301 = Moon)
+async function fetchMoonEphemeris() {
+  try {
+    const params = new URLSearchParams({
+      format:'json', COMMAND:"'301'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
+      START_TIME:"'2026-04-01 22:00'", STOP_TIME:"'2026-04-11 02:00'",
+      STEP_SIZE:"'1 h'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
+    });
+    const json = await horizonsFetch(params.toString());
+    if (json.result) {
+      const entries = parseHorizonsVectors(json.result);
+      if (entries.length > 10) {
+        moonEphemeris = entries;
+        buildMoonOrbitLine();
+        console.log('Moon ephemeris loaded:', entries.length, 'points');
+      }
+    }
+  } catch(e) { console.warn('Moon ephemeris fetch failed:', e.message); }
+}
+
+window._debug = { get hz() { return horizonsTrajectory; }, get wp() { return WAYPOINTS; }, get live() { return liveData; }, get moon() { return moonEphemeris; } };
 
 fetchFullTrajectoryRetry().then(() => {
   console.log('Trajectory fetch done. horizonsTrajectory:', horizonsTrajectory ? horizonsTrajectory.length + ' pts' : 'null');
   fetchCurrentPosition();
+  fetchMoonEphemeris();
 });
 setInterval(fetchCurrentPosition, 15*60*1000);
 
@@ -776,14 +816,31 @@ function getMissionState() {
 
   if (!speedKms) {
     if (horizonsTrajectory?.length > 1) {
-      const closest = horizonsTrajectory.reduce((a,b) => Math.abs(a.t-metHours)<Math.abs(b.t-metHours)?a:b);
-      if (closest.vx !== undefined) speedKms = Math.sqrt(closest.vx**2+closest.vy**2+closest.vz**2);
+      // Interpolate velocity between two nearest Horizons points
+      let i = 0;
+      for (let j = 0; j < horizonsTrajectory.length - 1; j++) {
+        if (metHours >= horizonsTrajectory[j].t && metHours <= horizonsTrajectory[j+1].t) { i = j; break; }
+      }
+      const a = horizonsTrajectory[i], b = horizonsTrajectory[Math.min(i+1, horizonsTrajectory.length-1)];
+      if (a.vx !== undefined && b.vx !== undefined) {
+        const frac = (b.t - a.t) > 0 ? (metHours - a.t) / (b.t - a.t) : 0;
+        const vx = a.vx + (b.vx - a.vx) * frac;
+        const vy = a.vy + (b.vy - a.vy) * frac;
+        const vz = a.vz + (b.vz - a.vz) * frac;
+        speedKms = Math.sqrt(vx*vx + vy*vy + vz*vz);
+      }
     }
     if (!speedKms) speedKms = getVelocity(metHours, pos, mPos);
   }
 
   const distEC = pos.length();
-  const distES = Math.max(0, distEC - EARTH_RADIUS);
+  // Oblate spheroid: Earth radius at sub-spacecraft latitude
+  const latRad = Math.asin(Math.min(1,Math.max(-1,pos.z/distEC)));
+  const EARTH_A = 6378.137, EARTH_B = 6356.752; // equatorial / polar radii
+  const cosLat = Math.cos(latRad), sinLat = Math.sin(latRad);
+  const earthR = Math.sqrt(((EARTH_A*EARTH_A*cosLat)**2 + (EARTH_B*EARTH_B*sinLat)**2) /
+                           ((EARTH_A*cosLat)**2 + (EARTH_B*sinLat)**2));
+  const distES = Math.max(0, distEC - earthR);
   const distMS = Math.max(0, pos.distanceTo(mPos) - MOON_RADIUS);
   const speedKmh = speedKms * 3600;
 
