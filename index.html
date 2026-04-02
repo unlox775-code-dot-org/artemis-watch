@@ -1807,8 +1807,10 @@ function animate() {
 
   // Redraw open graphs (~10fps)
   if (!animate._graphFrame) animate._graphFrame = 0;
-  if (animate._graphFrame++ % 6 === 0 && graphData) {
-    document.querySelectorAll('.telem-graph.open').forEach(g => {
+  if (animate._graphFrame++ % 6 === 0) {
+    const openGraphs = document.querySelectorAll('.telem-graph.open');
+    if (openGraphs.length > 0 && !graphData && WAYPOINTS.length > 10) computeGraphData();
+    if (graphData) openGraphs.forEach(g => {
       const canvas = g.querySelector('canvas');
       const type = g.id.replace('graph-', '');
       const data = graphData[type];
