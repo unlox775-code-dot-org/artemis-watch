@@ -507,11 +507,17 @@ function interpolateTrajectory(tHours) {
   }
   const frac = (t - WAYPOINTS[i].t) / (WAYPOINTS[i+1].t - WAYPOINTS[i].t || 1);
   const i0 = Math.max(0,i-1), i1 = i, i2 = Math.min(WAYPOINTS.length-1,i+1), i3 = Math.min(WAYPOINTS.length-1,i+2);
-  return new THREE.Vector3(
+  const pos = new THREE.Vector3(
     catmullRom(WAYPOINTS[i0].x, WAYPOINTS[i1].x, WAYPOINTS[i2].x, WAYPOINTS[i3].x, frac),
     catmullRom(WAYPOINTS[i0].y, WAYPOINTS[i1].y, WAYPOINTS[i2].y, WAYPOINTS[i3].y, frac),
     catmullRom(WAYPOINTS[i0].z, WAYPOINTS[i1].z, WAYPOINTS[i2].z, WAYPOINTS[i3].z, frac)
   );
+  // Clamp: don't let spline overshoot inside Earth's surface
+  const dist = pos.length();
+  if (dist < EARTH_RADIUS + 150 && dist > 0) {
+    pos.multiplyScalar((EARTH_RADIUS + 150) / dist);
+  }
+  return pos;
 }
 
 const GM_EARTH = 398600;
@@ -563,6 +569,7 @@ async function horizonsFetch(params) {
 
 async function fetchFullTrajectory() {
   try {
+    // Main trajectory at 30-min resolution
     const params = new URLSearchParams({
       format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
       START_TIME:"'2026-04-01 23:00'", STOP_TIME:"'2026-04-12 06:00'",
@@ -570,8 +577,27 @@ async function fetchFullTrajectory() {
     });
     const json = await horizonsFetch(params.toString());
     if (json.result) {
-      const entries = parseHorizonsVectors(json.result);
+      let entries = parseHorizonsVectors(json.result);
       if (entries.length > 20) {
+        // Also fetch fine resolution near periapsis (Day 1→2 close approach)
+        try {
+          const fineParams = new URLSearchParams({
+            format:'json', COMMAND:"'-1024'", EPHEM_TYPE:'VECTORS', CENTER:"'500@399'",
+            START_TIME:"'2026-04-02 21:00'", STOP_TIME:"'2026-04-03 03:00'",
+            STEP_SIZE:"'5 min'", VEC_TABLE:"'2'", REF_SYSTEM:"'ICRF'", OUT_UNITS:"'KM-S'",
+          });
+          const fineJson = await horizonsFetch(fineParams.toString());
+          if (fineJson.result) {
+            const fineEntries = parseHorizonsVectors(fineJson.result);
+            if (fineEntries.length > 5) {
+              // Merge: remove coarse points in the fine-data range, insert fine points
+              const fineStart = fineEntries[0].t, fineEnd = fineEntries[fineEntries.length-1].t;
+              entries = entries.filter(e => e.t < fineStart || e.t > fineEnd).concat(fineEntries);
+              entries.sort((a,b) => a.t - b.t);
+            }
+          }
+        } catch(e) { console.warn('Fine periapsis fetch failed:', e.message); }
+
         horizonsTrajectory = entries;
         WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
         anchorTrajectory();
