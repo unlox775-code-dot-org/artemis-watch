@@ -93,6 +93,24 @@
     50% { transform: translate(-50%, -50%) scale(1.5); opacity: 0.2; }
   }
 
+  /* Live telemetry ticker */
+  #live-ticker {
+    position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%);
+    z-index: 10; font-size: 10px; color: #5a7a9a; text-align: center;
+    font-family: 'Share Tech Mono', monospace; letter-spacing: 0.5px;
+    white-space: nowrap; display: none;
+  }
+  #live-ticker .ticker-time { color: #4da6ff; }
+  #live-ticker .ticker-data { color: #7ab8d9; }
+
+  /* View code link */
+  #view-code {
+    position: fixed; bottom: 10px; left: 16px; z-index: 10;
+    font-size: 10px; color: #3a5a7a; font-family: 'Share Tech Mono', monospace;
+    text-decoration: none; letter-spacing: 1px; opacity: 0.6; transition: opacity 0.2s;
+  }
+  #view-code:hover { opacity: 1; color: #4da6ff; }
+
   /* Day timeline */
   #timeline {
     position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
@@ -118,7 +136,8 @@
     color: #6a9abb; font-family: 'Share Tech Mono', monospace; font-size: 12px;
     padding: 7px 14px; cursor: pointer; letter-spacing: 1px; backdrop-filter: blur(12px); transition: all 0.2s;
   }
-  .ctrl-btn:hover, .ctrl-btn.active { color: #fff; border-color: #4da6ff; }
+  .ctrl-btn:hover { color: #b0d4f1; }
+  .ctrl-btn.active { color: #fff; border-color: #4da6ff; }
 
   /* Data source */
   #datasource { position: fixed; right: 28px; top: 210px; z-index: 10; font-size: 10px; color: #3a5a7a; text-align: right; max-width: 220px; }
@@ -187,6 +206,9 @@
     #timeline { bottom: 10px; gap: 2px; }
     .day-bar { width: 20px; }
     .day-label { font-size: 8px; }
+
+    #live-ticker { display: block; bottom: 32px; font-size: 9px; }
+    #view-code { bottom: 4px; left: 10px; font-size: 9px; }
   }
 </style>
 </head>
@@ -243,7 +265,9 @@
   </div>
 </div>
 
+<div id="live-ticker"></div>
 <div id="timeline"></div>
+<a id="view-code" href="https://github.com/dave/artemis-watch" target="_blank">&lt;/&gt; View Code</a>
 
 <div id="minimap-container">
   <div id="minimap-label">Sub-spacecraft Point</div>
