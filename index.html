@@ -617,6 +617,7 @@ async function fetchFullTrajectory() {
 }
 
 function anchorTrajectory() {
+  console.log('anchorTrajectory() called');
   // ============================================================
   // BACKWARD PROPAGATION: Reconstruct pre-Horizons launch trajectory
   // Horizons starts ~3.4h after launch (post-TLI). We propagate backwards
@@ -626,10 +627,12 @@ function anchorTrajectory() {
   const GM = 398600.4418; // km³/s², Earth gravitational parameter
   const firstH = horizonsTrajectory[0]; // has position + velocity
   if (!firstH || firstH.vx === undefined) {
+    console.log('anchorTrajectory: no velocity data, simple anchor');
     // No velocity data, just anchor to surface
     const fd = new THREE.Vector3(WAYPOINTS[0].x, WAYPOINTS[0].y, WAYPOINTS[0].z).normalize();
     WAYPOINTS.unshift({ t: 0, x: fd.x*(EARTH_RADIUS+200), y: fd.y*(EARTH_RADIUS+200), z: fd.z*(EARTH_RADIUS+200) });
   } else {
+    console.log('anchorTrajectory: backward propagation, firstH.t=', firstH.t, 'vx=', firstH.vx);
     // Backward propagation from first Horizons point
     let rx = firstH.x, ry = firstH.y, rz = firstH.z;
     let vx = firstH.vx, vy = firstH.vy, vz = firstH.vz;
@@ -695,6 +698,7 @@ function anchorTrajectory() {
     const filtered = preLaunchPts.filter(p => p.t >= -0.05);
     // Set t=0 for the first point (launch)
     if (filtered.length > 0) filtered[0].t = 0;
+    console.log('anchorTrajectory: prepending', filtered.length, 'backward-propagated points. First alt:', Math.round(Math.sqrt(filtered[0].x**2+filtered[0].y**2+filtered[0].z**2)-EARTH_RADIUS), 'km. Last alt:', Math.round(Math.sqrt(filtered[filtered.length-1].x**2+filtered[filtered.length-1].y**2+filtered[filtered.length-1].z**2)-EARTH_RADIUS), 'km');
     WAYPOINTS = filtered.concat(WAYPOINTS);
   }
 
