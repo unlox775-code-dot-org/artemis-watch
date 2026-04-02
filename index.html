@@ -49,8 +49,8 @@
   }
   .telem-card {
     background: rgba(0,15,40,0.88); border: 1px solid rgba(80,160,255,0.3);
-    border-radius: 8px; padding: 12px 20px; min-width: 260px;
-    backdrop-filter: blur(12px); pointer-events: auto;
+    border-radius: 8px; padding: 12px 20px; min-width: 260px; max-width: 600px;
+    backdrop-filter: blur(12px); pointer-events: auto; cursor: pointer;
   }
   .telem-label { font-size: 11px; letter-spacing: 3px; color: #5a8aaa; text-transform: uppercase; margin-bottom: 3px; }
   .telem-value {
@@ -58,6 +58,12 @@
     color: #fff; text-shadow: 0 0 10px rgba(80,160,255,0.4);
   }
   .telem-unit { font-size: 14px; color: #6a9abb; margin-left: 8px; }
+  .telem-graph {
+    max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
+    margin-top: 0;
+  }
+  .telem-graph.open { max-height: 120px; margin-top: 8px; }
+  .telem-graph canvas { width: 100%; height: 80px; display: block; border-radius: 4px; }
 
   /* Spacecraft HTML overlay */
   #sc-marker { position: fixed; z-index: 5; pointer-events: none; transform: translate(-50%, -50%); }
@@ -162,6 +168,7 @@
     .telem-value { font-size: 22px; }
     .telem-label { font-size: 9px; letter-spacing: 2px; }
     .telem-unit { font-size: 11px; }
+    .telem-graph canvas { height: 60px; }
 
     #minimap-container { right: 12px; bottom: 70px; }
     #minimap { width: 160px; height: 90px; }
@@ -1407,6 +1414,161 @@ window.toggleUnits = function() {
   btn.textContent = useMiles ? 'MILES' : 'KM';
   btn.classList.toggle('active', true);
 };
+
+// ============================================================
+// TELEMETRY GRAPHS
+// ============================================================
+let graphData = null; // { speed: [], earth: [], moon: [], maxT: number }
+
+function computeGraphData() {
+  if (WAYPOINTS.length < 3) return;
+  const maxT = WAYPOINTS[WAYPOINTS.length - 1].t;
+  const samples = 300;
+  const speed = [], earth = [], moon = [];
+
+  for (let i = 0; i <= samples; i++) {
+    const tH = (i / samples) * maxT;
+    const pos = interpolateTrajectory(tH);
+    const mPos = moonPosition(tH);
+
+    // Velocity (km/s)
+    let spd;
+    if (horizonsTrajectory?.length > 1) {
+      let idx = 0;
+      for (let j = 0; j < horizonsTrajectory.length - 1; j++) {
+        if (tH >= horizonsTrajectory[j].t && tH <= horizonsTrajectory[j + 1].t) { idx = j; break; }
+      }
+      const a = horizonsTrajectory[idx], b = horizonsTrajectory[Math.min(idx + 1, horizonsTrajectory.length - 1)];
+      if (a.vx !== undefined && b.vx !== undefined) {
+        const frac = (b.t - a.t) > 0 ? (tH - a.t) / (b.t - a.t) : 0;
+        const vx = a.vx + (b.vx - a.vx) * frac;
+        const vy = a.vy + (b.vy - a.vy) * frac;
+        const vz = a.vz + (b.vz - a.vz) * frac;
+        spd = Math.sqrt(vx * vx + vy * vy + vz * vz);
+      }
+    }
+    if (!spd) spd = getVelocity(tH, pos, mPos);
+
+    const distEC = pos.length();
+    const latRad = Math.asin(Math.min(1, Math.max(-1, pos.z / distEC)));
+    const cosLat = Math.cos(latRad), sinLat = Math.sin(latRad);
+    const eR = Math.sqrt(((6378.137 * 6378.137 * cosLat) ** 2 + (6356.752 * 6356.752 * sinLat) ** 2) /
+                         ((6378.137 * cosLat) ** 2 + (6356.752 * sinLat) ** 2));
+
+    speed.push({ t: tH, v: spd * 3600 }); // km/h
+    earth.push({ t: tH, v: Math.max(0, distEC - eR) });
+    moon.push({ t: tH, v: Math.max(0, pos.distanceTo(mPos) - MOON_RADIUS) });
+  }
+  graphData = { speed, earth, moon, maxT };
+}
+
+function drawGraph(canvasEl, data, metHours, unitFactor) {
+  const rect = canvasEl.parentElement.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio, 2);
+  const w = Math.floor(rect.width);
+  const h = canvasEl.parentElement.classList.contains('open') ? (window.innerWidth <= 600 ? 60 : 80) : 80;
+  canvasEl.width = w * dpr;
+  canvasEl.height = h * dpr;
+  canvasEl.style.width = w + 'px';
+  canvasEl.style.height = h + 'px';
+  const ctx = canvasEl.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  if (!graphData || !data.length) return;
+
+  const maxT = graphData.maxT;
+  let maxV = 0;
+  for (const d of data) maxV = Math.max(maxV, d.v * unitFactor);
+  if (maxV === 0) maxV = 1;
+
+  const pad = { l: 4, r: 4, t: 4, b: 14 };
+  const gw = w - pad.l - pad.r;
+  const gh = h - pad.t - pad.b;
+
+  // Draw day-colored line segments
+  ctx.lineWidth = 2;
+  for (let i = 1; i < data.length; i++) {
+    const day = Math.min(9, Math.floor(data[i].t / 24));
+    ctx.strokeStyle = DAY_COLORS[day];
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    const x0 = pad.l + (data[i - 1].t / maxT) * gw;
+    const y0 = pad.t + gh - (data[i - 1].v * unitFactor / maxV) * gh;
+    const x1 = pad.l + (data[i].t / maxT) * gw;
+    const y1 = pad.t + gh - (data[i].v * unitFactor / maxV) * gh;
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Now marker for current time
+  const nowX = pad.l + Math.max(0, Math.min(1, metHours / maxT)) * gw;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(nowX, pad.t);
+  ctx.lineTo(nowX, pad.t + gh);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Small "NOW" label
+  ctx.fillStyle = '#fff';
+  ctx.font = '9px "Share Tech Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('NOW', nowX, h - 2);
+
+  // Day labels along bottom
+  ctx.fillStyle = '#5a7a9a';
+  ctx.font = '8px "Share Tech Mono", monospace';
+  ctx.textAlign = 'center';
+  for (let d = 0; d < 10; d++) {
+    const dayStart = d * 24;
+    if (dayStart > maxT) break;
+    const dx = pad.l + (dayStart / maxT) * gw;
+    ctx.fillStyle = DAY_COLORS[d];
+    ctx.fillText('D' + (d + 1), dx + ((Math.min((d + 1) * 24, maxT) - dayStart) / maxT * gw) / 2, h - 2);
+  }
+}
+
+// Hover / tap interaction
+const telemCards = document.querySelectorAll('.telem-card[data-graph]');
+let activeGraph = null;
+
+function toggleGraph(card) {
+  const graphEl = card.querySelector('.telem-graph');
+  if (graphEl.classList.contains('open')) {
+    graphEl.classList.remove('open');
+    activeGraph = null;
+  } else {
+    // Close any other open graphs
+    document.querySelectorAll('.telem-graph.open').forEach(g => g.classList.remove('open'));
+    graphEl.classList.add('open');
+    activeGraph = card.dataset.graph;
+  }
+}
+
+// Desktop: hover
+telemCards.forEach(card => {
+  card.addEventListener('mouseenter', () => {
+    if (window.innerWidth <= 600) return; // use tap on mobile
+    document.querySelectorAll('.telem-graph.open').forEach(g => g.classList.remove('open'));
+    card.querySelector('.telem-graph').classList.add('open');
+    activeGraph = card.dataset.graph;
+  });
+  card.addEventListener('mouseleave', () => {
+    if (window.innerWidth <= 600) return;
+    card.querySelector('.telem-graph').classList.remove('open');
+    activeGraph = null;
+  });
+  // Mobile: tap
+  card.addEventListener('click', (e) => {
+    if (window.innerWidth > 600) return;
+    e.stopPropagation();
+    toggleGraph(card);
+  });
+});
 
 // ============================================================
 // ANIMATION
