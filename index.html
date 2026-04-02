@@ -139,6 +139,40 @@
     letter-spacing: 2px; text-shadow: 0 0 8px currentColor;
     transform: translate(-50%, -100%); padding-bottom: 4px;
   }
+
+  /* Responsive: narrow / portrait screens */
+  @media (max-width: 600px) {
+    #header { padding: 10px 12px; }
+    #mission-title { font-size: 20px; }
+    #met-display { font-size: 18px; }
+    #met-label { font-size: 9px; }
+
+    #phase-display { left: 12px; top: 50px; }
+    #phase-name { font-size: 12px; }
+    #phase-desc { font-size: 11px; }
+
+    #controls { right: 12px; top: 50px; }
+    .ctrl-btn { font-size: 10px; padding: 5px 10px; }
+
+    #datasource { display: none; }
+    #crew { display: none; }
+
+    #telemetry { left: 12px; bottom: 70px; gap: 6px; }
+    .telem-card { padding: 8px 12px; min-width: 0; }
+    .telem-value { font-size: 22px; }
+    .telem-label { font-size: 9px; letter-spacing: 2px; }
+    .telem-unit { font-size: 11px; }
+
+    #minimap-container { right: 12px; bottom: 70px; }
+    #minimap { width: 160px; height: 90px; }
+    #minimap-label { font-size: 8px; }
+    #subpoint-info { font-size: 9px; }
+    #country-name { font-size: 9px; }
+
+    #timeline { bottom: 10px; gap: 2px; }
+    .day-bar { width: 20px; }
+    .day-label { font-size: 8px; }
+  }
 </style>
 </head>
 <body>
