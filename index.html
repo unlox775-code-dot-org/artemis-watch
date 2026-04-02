@@ -505,6 +505,7 @@ async function fetchFullTrajectory() {
         WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
         buildTrajectoryLine();
         buildMoonOrbitLine();
+        computeCameraUp();
         document.getElementById('last-fetch').textContent = `Trajectory: ${entries.length} pts from JPL`;
       }
     }
@@ -1003,10 +1004,31 @@ for (let d = 1; d <= 10; d++) {
 // ============================================================
 // CAMERA DRAG CONTROLS
 // ============================================================
-const BASE_AZIMUTH = 0; // From +Z direction: trajectory X-extent maps to screen horizontal
-const BASE_ELEVATION = 0.10; // ~5.7° — slight tilt above orbital plane (user had ~2.9°)
+const BASE_AZIMUTH = 0; // From +Z direction, looking at orbital plane
+const BASE_ELEVATION = 0.25; // ~14° tilt for depth
+// Compute camera up vector so trajectory principal axis maps to screen horizontal
+// Recomputed when trajectory data loads
+let cameraUp = new THREE.Vector3(0, 1, 0);
+function computeCameraUp() {
+  if (WAYPOINTS.length < 3) return;
+  // Find trajectory principal direction (first point to farthest point)
+  const first = WAYPOINTS[0];
+  let maxD = 0, farthest = first;
+  for (const w of WAYPOINTS) {
+    const d = w.x*w.x + w.y*w.y + w.z*w.z;
+    if (d > maxD) { maxD = d; farthest = w; }
+  }
+  const trajDir = new THREE.Vector3(farthest.x - first.x, farthest.y - first.y, 0).normalize();
+  // Camera up = perpendicular to trajectory in XY, so trajectory maps to screen horizontal
+  // For camera looking from +Z: screen_right = cross(viewDir, up)
+  // viewDir ≈ (0, 0, -1), so screen_right = (up.y, -up.x, 0)
+  // We want screen_right ∝ trajDir, so: up.y = trajDir.x, -up.x = trajDir.y → up.x = -trajDir.y
+  cameraUp.set(-trajDir.y, trajDir.x, 0).normalize();
+}
+computeCameraUp();
+
 let isDragging = false;
-let dragAzimuth = BASE_AZIMUTH, dragElevation = 0.35;
+let dragAzimuth = BASE_AZIMUTH, dragElevation = 0.25;
 let lastDragTime = 0;
 let dragStartX = 0, dragStartY = 0, dragAzStart = 0, dragElStart = 0;
 const DRAG_PAUSE_DURATION = 60; // seconds
@@ -1374,7 +1396,7 @@ function animate() {
     // Side-to-side Lissajous wobble
     const wobbleT = t * (Math.PI * 2 / 30); // 30-second full loop
     camAz = BASE_AZIMUTH + Math.sin(wobbleT) * 0.8;      // wide horizontal sweep around base angle
-    camEl = 0.35 + Math.sin(wobbleT * 2) * 0.05; // ~20° with slight oscillation
+    camEl = 0.25 + Math.sin(wobbleT * 2) * 0.05; // ~14° with slight oscillation
     angleDisplay.style.display = 'none';
   }
 
@@ -1384,7 +1406,7 @@ function animate() {
     camDist * Math.cos(camAz) * Math.cos(camEl)
   );
   camera.lookAt(centerX, centerY, 0);
-  camera.up.set(0, 1, 0);
+  camera.up.copy(cameraUp);
 
   // Update line material resolution on resize
   const allLineGroups = [trajectoryGroup, moonOrbitGroup];
