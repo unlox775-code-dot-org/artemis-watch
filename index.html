@@ -98,7 +98,7 @@
     position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%);
     z-index: 10; font-size: 10px; color: #5a7a9a; text-align: center;
     font-family: 'Share Tech Mono', monospace; letter-spacing: 0.5px;
-    white-space: nowrap; display: none;
+    white-space: nowrap;
   }
   #live-ticker .ticker-time { color: #4da6ff; }
   #live-ticker .ticker-data { color: #7ab8d9; }
@@ -207,7 +207,7 @@
     .day-bar { width: 20px; }
     .day-label { font-size: 8px; }
 
-    #live-ticker { display: block; bottom: 32px; font-size: 9px; }
+    #live-ticker { bottom: 32px; font-size: 9px; }
     #view-code { bottom: 4px; left: 10px; font-size: 9px; }
   }
 </style>
@@ -267,7 +267,7 @@
 
 <div id="live-ticker"></div>
 <div id="timeline"></div>
-<a id="view-code" href="https://github.com/dave/artemis-watch" target="_blank">&lt;/&gt; View Code</a>
+<a id="view-code" href="https://github.com/unlox775-code-dot-org/artemis-watch" target="_blank">&lt;/&gt; View Code</a>
 
 <div id="minimap-container">
   <div id="minimap-label">Sub-spacecraft Point</div>
@@ -1960,6 +1960,25 @@ function animate() {
 
   document.getElementById('phase-name').textContent = state.phase.name;
   document.getElementById('phase-desc').textContent = state.phase.desc;
+
+  // Live telemetry ticker (update every 5s)
+  if (!animate._tickerFrame) animate._tickerFrame = 0;
+  if (animate._tickerFrame++ % 300 === 0) {
+    const ticker = document.getElementById('live-ticker');
+    if (liveData && lastFetchTime) {
+      const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
+      const min = Math.floor(ago / 60), sec = ago % 60;
+      const agoStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
+      const liveSpeed = Math.sqrt(liveData.vx**2 + liveData.vy**2 + liveData.vz**2) * 3600;
+      const liveDist = Math.sqrt(liveData.x**2 + liveData.y**2 + liveData.z**2) - 6371;
+      const luf = useMiles ? KM_TO_MI : 1;
+      const lsu = useMiles ? 'mph' : 'km/h';
+      const ldu = useMiles ? 'mi' : 'km';
+      ticker.innerHTML = `<span class="ticker-time">Live ${agoStr} ago</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
+    } else {
+      ticker.innerHTML = '<span class="ticker-time">Awaiting live telemetry...</span>';
+    }
+  }
 
   // Redraw open graphs (~10fps)
   if (!animate._graphFrame) animate._graphFrame = 0;
