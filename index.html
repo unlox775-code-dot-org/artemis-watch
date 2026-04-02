@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Artemis II — Live Mission Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #000;
+    color: #e0e8f0;
+    font-family: 'Share Tech Mono', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #three-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+  }
+
+  /* ---- Header bar ---- */
+  #header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 24px;
+    background: linear-gradient(180deg, rgba(0,10,30,0.92) 0%, rgba(0,10,30,0.0) 100%);
+    pointer-events: none;
+  }
+  #header > * { pointer-events: auto; }
+
+  #mission-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: 4px;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(80,160,255,0.6);
+  }
+  #mission-title span { color: #4da6ff; }
+
+  #met-display {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 20px;
+    color: #4da6ff;
+    text-shadow: 0 0 12px rgba(80,160,255,0.5);
+  }
+  #met-label {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: #6a8aaa;
+    display: block;
+    text-align: right;
+  }
+
+  /* ---- Telemetry panel ---- */
+  #telemetry {
+    position: fixed;
+    left: 24px;
+    bottom: 24px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+  }
+
+  .telem-card {
+    background: rgba(0, 15, 40, 0.85);
+    border: 1px solid rgba(80, 160, 255, 0.25);
+    border-radius: 6px;
+    padding: 10px 18px;
+    min-width: 220px;
+    backdrop-filter: blur(10px);
+    pointer-events: auto;
+  }
+  .telem-label {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: #5a8aaa;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .telem-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 0 8px rgba(80,160,255,0.4);
+  }
+  .telem-unit {
+    font-size: 12px;
+    color: #6a9abb;
+    margin-left: 6px;
+  }
+
+  /* ---- Phase indicator ---- */
+  #phase-display {
+    position: fixed;
+    left: 24px;
+    top: 60px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  #phase-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #4da6ff;
+    letter-spacing: 2px;
+  }
+  #phase-desc {
+    font-size: 12px;
+    color: #6a8aaa;
+    margin-top: 2px;
+  }
+
+  /* ---- Day timeline ---- */
+  #timeline {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    gap: 4px;
+    align-items: end;
+    pointer-events: none;
+  }
+  .day-marker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    pointer-events: auto;
+  }
+  .day-bar {
+    width: 30px;
+    height: 4px;
+    border-radius: 2px;
+    opacity: 0.5;
+    transition: opacity 0.3s, height 0.3s;
+  }
+  .day-bar.active {
+    opacity: 1;
+    height: 8px;
+  }
+  .day-label {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: #5a7a9a;
+  }
+  .day-label.active {
+    color: #fff;
+  }
+
+  /* ---- Spacecraft HTML overlay ---- */
+  #sc-marker {
+    position: fixed;
+    z-index: 5;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+  }
+  #sc-marker .sc-ring {
+    width: 40px; height: 40px;
+    border: 2px solid rgba(255,180,60,0.8);
+    border-radius: 50%;
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: sc-pulse 2s ease-in-out infinite;
+  }
+  #sc-marker .sc-ring2 {
+    width: 60px; height: 60px;
+    border: 1px solid rgba(255,180,60,0.4);
+    border-radius: 50%;
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: sc-pulse 2s ease-in-out infinite 0.3s;
+  }
+  #sc-marker .sc-dot {
+    width: 10px; height: 10px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 12px 4px rgba(255,180,60,0.9), 0 0 30px 8px rgba(255,120,30,0.5), 0 0 60px 16px rgba(255,80,20,0.2);
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  #sc-marker .sc-label-tag {
+    position: absolute;
+    top: -28px; left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    color: #ffcc66;
+    letter-spacing: 2px;
+    white-space: nowrap;
+    text-shadow: 0 0 8px rgba(255,180,60,0.6);
+  }
+  #sc-marker .sc-line-down {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 1px; height: 40px;
+    background: linear-gradient(180deg, rgba(255,180,60,0.4), rgba(255,180,60,0));
+    transform: translateX(-50%);
+  }
+  @keyframes sc-pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    50% { transform: translate(-50%, -50%) scale(1.4); opacity: 0.3; }
+  }
+
+  /* ---- Mini world map ---- */
+  #minimap-container {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  #minimap-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: #5a7a9a;
+    text-align: center;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+  #minimap {
+    width: 220px;
+    height: 110px;
+    border: 1px solid rgba(80,160,255,0.25);
+    border-radius: 4px;
+    background: rgba(0,15,40,0.85);
+    backdrop-filter: blur(10px);
+  }
+  #subpoint-info {
+    font-size: 10px;
+    color: #6a9abb;
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  /* ---- Scale toggle ---- */
+  #controls {
+    position: fixed;
+    right: 24px;
+    top: 60px;
+    z-index: 10;
+  }
+  .ctrl-btn {
+    background: rgba(0, 15, 40, 0.85);
+    border: 1px solid rgba(80, 160, 255, 0.3);
+    border-radius: 4px;
+    color: #6a9abb;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    padding: 6px 12px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    backdrop-filter: blur(10px);
+    transition: all 0.2s;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .ctrl-btn:hover, .ctrl-btn.active { color: #fff; border-color: #4da6ff; }
+
+  /* ---- Data source ---- */
+  #datasource {
+    position: fixed;
+    right: 24px;
+    top: 140px;
+    z-index: 10;
+    font-size: 9px;
+    color: #3a5a7a;
+    text-align: right;
+    max-width: 200px;
+  }
+  #datasource a { color: #4a7aaa; text-decoration: none; }
+
+  /* ---- Crew badge ---- */
+  #crew {
+    position: fixed;
+    right: 24px;
+    top: 190px;
+    z-index: 10;
+    font-size: 10px;
+    color: #4a6a8a;
+    line-height: 1.6;
+  }
+  #crew strong { color: #6a9abb; }
+</style>
+</head>
+<body>
+
+<canvas id="three-canvas"></canvas>
+
+<!-- Spacecraft HTML overlay marker -->
+<div id="sc-marker">
+  <div class="sc-ring2"></div>
+  <div class="sc-ring"></div>
+  <div class="sc-dot"></div>
+  <div class="sc-label-tag">ORION</div>
+  <div class="sc-line-down"></div>
+</div>
+
+<!-- Header -->
+<div id="header">
+  <div id="mission-title">ARTEMIS <span>II</span></div>
+  <div>
+    <span id="met-label">MISSION ELAPSED TIME</span>
+    <div id="met-display">T+ 00:00:00:00</div>
+  </div>
+</div>
+
+<!-- Phase -->
+<div id="phase-display">
+  <div id="phase-name">INITIALIZING</div>
+  <div id="phase-desc">Loading telemetry...</div>
+</div>
+
+<!-- Telemetry -->
+<div id="telemetry">
+  <div class="telem-card">
+    <div class="telem-label">Velocity</div>
+    <div><span class="telem-value" id="val-speed">---</span><span class="telem-unit">km/h</span></div>
+  </div>
+  <div class="telem-card">
+    <div class="telem-label">Distance from Earth</div>
+    <div><span class="telem-value" id="val-earth">---</span><span class="telem-unit">km</span></div>
+  </div>
+  <div class="telem-card">
+    <div class="telem-label">Distance from Moon</div>
+    <div><span class="telem-value" id="val-moon">---</span><span class="telem-unit">km</span></div>
+  </div>
+  <div class="telem-card">
+    <div class="telem-label">Altitude</div>
+    <div><span class="telem-value" id="val-alt">---</span><span class="telem-unit">km</span></div>
+  </div>
+</div>
+
+<!-- Day Timeline -->
+<div id="timeline"></div>
+
+<!-- Mini map -->
+<div id="minimap-container">
+  <div id="minimap-label">Sub-spacecraft Point</div>
+  <canvas id="minimap" width="440" height="220"></canvas>
+  <div id="subpoint-info">---.--° N, ---.--° E</div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <button class="ctrl-btn" id="btn-scale" onclick="toggleScale()">TO SCALE</button>
+  <button class="ctrl-btn" id="btn-labels" onclick="toggleLabels()">LABELS</button>
+</div>
+
+<!-- Data source -->
+<div id="datasource">
+  Trajectory: JPL Horizons<br>
+  Object: <b>-1024</b> (Orion)<br>
+  <span id="last-fetch">Last fetch: --</span><br>
+  <a href="https://www.nasa.gov/trackartemis" target="_blank">NASA AROW →</a>
+</div>
+
+<!-- Crew -->
+<div id="crew">
+  <strong>CDR</strong> Reid Wiseman<br>
+  <strong>PLT</strong> Victor Glover<br>
+  <strong>MS1</strong> Christina Koch<br>
+  <strong>MS2</strong> Jeremy Hansen
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+const LAUNCH_UTC = new Date('2026-04-01T22:35:12Z');
+const SPLASHDOWN_UTC = new Date('2026-04-11T00:21:00Z');
+const EARTH_RADIUS = 6371;    // km
+const MOON_RADIUS = 1737;     // km
+const EARTH_MOON_DIST = 384400; // km average
+const MISSION_DURATION_H = (SPLASHDOWN_UTC - LAUNCH_UTC) / 3600000;
+
+// Day colors for trajectory segments
+const DAY_COLORS = [
+  '#ff4444', // Day 1 - Launch & HEO
+  '#ff8844', // Day 2 - TLI & outbound
+  '#ffcc44', // Day 3 - Outbound coast
+  '#88ff44', // Day 4 - Outbound coast
+  '#44ffaa', // Day 5 - Approaching Moon
+  '#44ccff', // Day 6 - Lunar flyby
+  '#4488ff', // Day 7 - Return coast
+  '#8844ff', // Day 8 - Return coast
+  '#cc44ff', // Day 9 - Return coast
+  '#ff44aa', // Day 10 - Reentry & splashdown
+];
+
+// Mission phases
+const PHASES = [
+  { start: 0,    end: 3,    name: 'ASCENT & ORBIT INSERTION',  desc: 'SLS launch, ICPS burns, high Earth orbit' },
+  { start: 3,    end: 24,   name: 'HIGH EARTH ORBIT',          desc: 'Systems checkout in 23.5-hour orbit' },
+  { start: 24,   end: 26,   name: 'TRANS-LUNAR INJECTION',     desc: 'TLI burn — 6 min 5 sec Orion OMS engine' },
+  { start: 26,   end: 116,  name: 'OUTBOUND COAST',            desc: 'Navigating toward the Moon' },
+  { start: 116,  end: 136,  name: 'LUNAR FLYBY',               desc: 'Far-side passage — 6,500 km altitude' },
+  { start: 136,  end: 228,  name: 'RETURN COAST',              desc: 'Free-return trajectory back to Earth' },
+  { start: 228,  end: 236,  name: 'REENTRY & SPLASHDOWN',      desc: 'Heat shield reentry at 40,000 km/h' },
+];
+
+// ============================================================
+// TRAJECTORY MODEL (pre-computed waypoints)
+// ============================================================
+// Geocentric inertial frame, km. Moon at +x at flyby time.
+// Moon angular rate: 0.55 deg/hr from launch reference
+
+function moonPosition(tHours) {
+  // At T=126h (flyby midpoint), Moon is along +x axis
+  const angle = (tHours - 126) * 0.55 * Math.PI / 180;
+  return new THREE.Vector3(
+    EARTH_MOON_DIST * Math.cos(angle),
+    EARTH_MOON_DIST * Math.sin(angle),
+    0
+  );
+}
+
+// Key trajectory waypoints {t: hours, x, y, z: km} — may be replaced with live Horizons data
+let WAYPOINTS = [
+  // Launch & ascent
+  { t: 0.0,   x: 0,        y: 6571,     z: 0 },
+  { t: 0.5,   x: -3000,    y: 8000,     z: 200 },
+  { t: 1.0,   x: -8000,    y: 14000,    z: 500 },
+  // ICPS burns → high elliptical orbit
+  { t: 2.0,   x: -18000,   y: 30000,    z: 800 },
+  { t: 4.0,   x: -38000,   y: 55000,    z: 600 },
+  { t: 8.0,   x: -50000,   y: 60000,    z: 200 },
+  { t: 12.0,  x: -45000,   y: 40000,    z: -200 },
+  { t: 16.0,  x: -28000,   y: 12000,    z: -500 },
+  { t: 20.0,  x: -8000,    y: -8000,    z: -400 },
+  { t: 24.0,  x: 3000,     y: -6800,    z: -100 },
+  // TLI burn
+  { t: 25.5,  x: 10000,    y: -2000,    z: 200 },
+  { t: 27.0,  x: 22000,    y: 6000,     z: 800 },
+  // Outbound coast
+  { t: 36.0,  x: 65000,    y: 25000,    z: 2500 },
+  { t: 48.0,  x: 125000,   y: 42000,    z: 3800 },
+  { t: 60.0,  x: 180000,   y: 48000,    z: 4200 },
+  { t: 72.0,  x: 230000,   y: 44000,    z: 4000 },
+  { t: 84.0,  x: 275000,   y: 35000,    z: 3500 },
+  { t: 96.0,  x: 315000,   y: 24000,    z: 2800 },
+  { t: 108.0, x: 348000,   y: 14000,    z: 2000 },
+  { t: 116.0, x: 370000,   y: 7000,     z: 1400 },
+  // Lunar flyby
+  { t: 120.0, x: 382000,   y: 4000,     z: 900 },
+  { t: 123.0, x: 389000,   y: 1500,     z: 400 },
+  { t: 126.0, x: 393000,   y: -2000,    z: 0 },     // closest approach (far side)
+  { t: 129.0, x: 390000,   y: -7000,    z: -500 },
+  { t: 132.0, x: 382000,   y: -14000,   z: -1200 },
+  { t: 136.0, x: 368000,   y: -26000,   z: -2200 },
+  // Return coast
+  { t: 144.0, x: 340000,   y: -45000,   z: -3200 },
+  { t: 156.0, x: 295000,   y: -68000,   z: -4000 },
+  { t: 168.0, x: 240000,   y: -82000,   z: -4200 },
+  { t: 180.0, x: 185000,   y: -86000,   z: -3800 },
+  { t: 192.0, x: 132000,   y: -80000,   z: -3200 },
+  { t: 204.0, x: 82000,    y: -64000,   z: -2500 },
+  { t: 216.0, x: 42000,    y: -42000,   z: -1600 },
+  { t: 224.0, x: 18000,    y: -24000,   z: -800 },
+  // Reentry approach
+  { t: 230.0, x: 8000,     y: -12000,   z: -300 },
+  { t: 233.0, x: 3000,     y: -7500,    z: -100 },
+  { t: 235.0, x: 1000,     y: -6500,    z: 0 },
+  { t: 235.8, x: 0,        y: -6371,    z: 0 },     // splashdown
+];
+
+// Catmull-Rom interpolation
+function catmullRom(p0, p1, p2, p3, t) {
+  const t2 = t * t, t3 = t2 * t;
+  return 0.5 * (
+    (2 * p1) +
+    (-p0 + p2) * t +
+    (2*p0 - 5*p1 + 4*p2 - p3) * t2 +
+    (-p0 + 3*p1 - 3*p2 + p3) * t3
+  );
+}
+
+function interpolateTrajectory(tHours) {
+  // Clamp
+  const t = Math.max(WAYPOINTS[0].t, Math.min(WAYPOINTS[WAYPOINTS.length-1].t, tHours));
+
+  // Find segment
+  let i = 0;
+  for (let j = 0; j < WAYPOINTS.length - 1; j++) {
+    if (t >= WAYPOINTS[j].t && t <= WAYPOINTS[j+1].t) { i = j; break; }
+  }
+
+  const frac = (t - WAYPOINTS[i].t) / (WAYPOINTS[i+1].t - WAYPOINTS[i].t || 1);
+
+  // Get four control points (clamped)
+  const i0 = Math.max(0, i - 1);
+  const i1 = i;
+  const i2 = Math.min(WAYPOINTS.length - 1, i + 1);
+  const i3 = Math.min(WAYPOINTS.length - 1, i + 2);
+
+  return new THREE.Vector3(
+    catmullRom(WAYPOINTS[i0].x, WAYPOINTS[i1].x, WAYPOINTS[i2].x, WAYPOINTS[i3].x, frac),
+    catmullRom(WAYPOINTS[i0].y, WAYPOINTS[i1].y, WAYPOINTS[i2].y, WAYPOINTS[i3].y, frac),
+    catmullRom(WAYPOINTS[i0].z, WAYPOINTS[i1].z, WAYPOINTS[i2].z, WAYPOINTS[i3].z, frac)
+  );
+}
+
+// Velocity model: uses vis-viva equation for realistic orbital speeds
+// v² = GM * (2/r - 1/a) where a is the semi-major axis of current trajectory segment
+const GM_EARTH = 398600; // km³/s²
+const GM_MOON = 4905;
+
+function getVelocity(tHours, pos, moonPos) {
+  const r = pos ? pos.length() : interpolateTrajectory(tHours).length();
+
+  if (tHours < 1) {
+    // Ascent: LEO velocity
+    return 7.8;
+  } else if (tHours < 25) {
+    // HEO: vis-viva with a = 41464 km
+    const a = 41464;
+    const v2 = GM_EARTH * (2 / Math.max(r, 6571) - 1 / a);
+    return v2 > 0 ? Math.sqrt(v2) : 1.0;
+  } else if (tHours < 27) {
+    // TLI burn: boosting to ~10.8 km/s
+    const frac = (tHours - 25) / 2;
+    return 10.0 + frac * 0.8;
+  } else if (tHours < 116) {
+    // Trans-lunar coast: hyperbolic w.r.t. Earth, gradually slowing
+    // Use vis-viva with hyperbolic trajectory (negative a → use energy approach)
+    // v_inf ≈ 0.8 km/s, so v² = GM/r * 2 + v_inf²
+    const v2 = GM_EARTH * 2 / Math.max(r, 6571) + 0.64; // v_inf² = 0.8² = 0.64
+    return v2 > 0 ? Math.sqrt(v2) : 0.8;
+  } else if (tHours < 136) {
+    // Lunar flyby: influenced by Moon's gravity
+    const distMoon = pos ? pos.distanceTo(moonPos) : 8000;
+    const vEarth2 = GM_EARTH * 2 / Math.max(r, 6571) + 0.64;
+    const vMoon2 = GM_MOON * 2 / Math.max(distMoon, 1838);
+    return Math.sqrt(Math.max(vEarth2 + vMoon2, 0.5));
+  } else if (tHours < 232) {
+    // Return coast: similar to outbound
+    const v2 = GM_EARTH * 2 / Math.max(r, 6571) + 0.64;
+    return v2 > 0 ? Math.sqrt(v2) : 0.8;
+  } else {
+    // Reentry: approaching at ~11 km/s
+    const v2 = GM_EARTH * 2 / Math.max(r, 6571) + 0.64;
+    return Math.min(v2 > 0 ? Math.sqrt(v2) : 11, 11.2);
+  }
+}
+
+// ============================================================
+// LIVE TELEMETRY (JPL Horizons API)
+// ============================================================
+let liveData = null;
+let lastFetchTime = null;
+let horizonsTrajectory = null; // Full trajectory from Horizons
+
+// Parse Horizons vector data from result text
+function parseHorizonsVectors(resultText) {
+  const lines = resultText.split('\n');
+  let inData = false;
+  const raw = [];
+
+  for (const line of lines) {
+    if (line.startsWith('$$SOE')) { inData = true; continue; }
+    if (line.startsWith('$$EOE')) { inData = false; continue; }
+    if (inData && line.trim()) raw.push(line.trim());
+  }
+
+  const entries = [];
+  for (let i = 0; i < raw.length; i += 3) {
+    if (i + 2 >= raw.length) break;
+    const posMatch = raw[i+1].match(/X\s*=\s*([-\d.E+]+)\s*Y\s*=\s*([-\d.E+]+)\s*Z\s*=\s*([-\d.E+]+)/);
+    const velMatch = raw[i+2].match(/VX\s*=\s*([-\d.E+]+)\s*VY\s*=\s*([-\d.E+]+)\s*VZ\s*=\s*([-\d.E+]+)/);
+    // Extract Julian date from header line
+    const jdMatch = raw[i].match(/^([\d.]+)\s*=/);
+    if (posMatch && velMatch && jdMatch) {
+      const jd = parseFloat(jdMatch[1]);
+      // Convert JD to hours from launch
+      const msFromJ2000 = (jd - 2451545.0) * 86400000;
+      const date = new Date(Date.UTC(2000, 0, 1, 12, 0, 0) + msFromJ2000);
+      const metHours = (date - LAUNCH_UTC) / 3600000;
+      entries.push({
+        t: metHours,
+        x: parseFloat(posMatch[1]),
+        y: parseFloat(posMatch[2]),
+        z: parseFloat(posMatch[3]),
+        vx: parseFloat(velMatch[1]),
+        vy: parseFloat(velMatch[2]),
+        vz: parseFloat(velMatch[3]),
+      });
+    }
+  }
+  return entries;
+}
+
+async function horizonsFetch(params) {
+  const url = 'https://ssd.jpl.nasa.gov/api/horizons.api?' + params;
+  try {
+    const resp = await fetch(url);
+    return await resp.json();
+  } catch {
+    const resp = await fetch('https://corsproxy.io/?' + encodeURIComponent(url));
+    return await resp.json();
+  }
+}
+
+// Fetch full mission trajectory (once on load)
+async function fetchFullTrajectory() {
+  try {
+    const launchStr = '2026-04-02 02:00'; // ~3.4h after launch (after ICPS sep)
+    const endStr = '2026-04-11 01:00';
+
+    const params = new URLSearchParams({
+      format: 'json',
+      COMMAND: "'-1024'",
+      EPHEM_TYPE: 'VECTORS',
+      CENTER: "'500@399'",
+      START_TIME: `'${launchStr}'`,
+      STOP_TIME: `'${endStr}'`,
+      STEP_SIZE: "'30 m'",
+      VEC_TABLE: "'2'",
+      REF_SYSTEM: "'ICRF'",
+      OUT_UNITS: "'KM-S'",
+    });
+
+    const json = await horizonsFetch(params.toString());
+    if (json.result) {
+      const entries = parseHorizonsVectors(json.result);
+      if (entries.length > 20) {
+        horizonsTrajectory = entries;
+        // Replace waypoints with real data
+        WAYPOINTS.length = 0;
+        entries.forEach(e => WAYPOINTS.push({ t: e.t, x: e.x, y: e.y, z: e.z }));
+        // Rebuild trajectory visualization
+        buildTrajectoryLine();
+        console.log(`Full trajectory loaded: ${entries.length} points`);
+        document.getElementById('last-fetch').textContent =
+          `Trajectory: ${entries.length} pts from JPL`;
+      }
+    }
+  } catch (e) {
+    console.warn('Full trajectory fetch failed:', e.message);
+  }
+}
+
+// Fetch current position (every 15 min)
+async function fetchCurrentPosition() {
+  try {
+    const now = new Date();
+    const start = new Date(now.getTime() - 1800000).toISOString().slice(0, 19).replace('T', ' ');
+    const stop = new Date(now.getTime() + 1800000).toISOString().slice(0, 19).replace('T', ' ');
+
+    const params = new URLSearchParams({
+      format: 'json',
+      COMMAND: "'-1024'",
+      EPHEM_TYPE: 'VECTORS',
+      CENTER: "'500@399'",
+      START_TIME: `'${start}'`,
+      STOP_TIME: `'${stop}'`,
+      STEP_SIZE: "'5 m'",
+      VEC_TABLE: "'2'",
+      REF_SYSTEM: "'ICRF'",
+      OUT_UNITS: "'KM-S'",
+    });
+
+    const json = await horizonsFetch(params.toString());
+    if (json.result) {
+      const entries = parseHorizonsVectors(json.result);
+      if (entries.length > 0) {
+        // Find closest to now
+        const metNow = (now - LAUNCH_UTC) / 3600000;
+        let closest = entries[0];
+        let minDiff = Math.abs(entries[0].t - metNow);
+        for (const e of entries) {
+          const diff = Math.abs(e.t - metNow);
+          if (diff < minDiff) { minDiff = diff; closest = e; }
+        }
+        liveData = closest;
+        lastFetchTime = now;
+        document.getElementById('last-fetch').textContent =
+          `Live: ${now.toLocaleTimeString()}`;
+        console.log('Horizons data fetched:', closest);
+      }
+    }
+  } catch (e) {
+    console.warn('Horizons fetch failed (CORS or network):', e.message);
+    if (!lastFetchTime) {
+      document.getElementById('last-fetch').textContent = 'Using predicted trajectory';
+    }
+  }
+}
+
+// Fetch full trajectory first, then current position
+fetchFullTrajectory().then(() => fetchCurrentPosition());
+setInterval(fetchCurrentPosition, 15 * 60 * 1000);
+
+// ============================================================
+// COMPUTE STATE
+// ============================================================
+function getMissionState() {
+  const now = new Date();
+  const metMs = now - LAUNCH_UTC;
+  const metHours = metMs / 3600000;
+
+  let pos, speedKms;
+
+  if (liveData) {
+    // Use live JPL data (geocentric ICRF frame)
+    pos = new THREE.Vector3(liveData.x, liveData.y, liveData.z);
+    speedKms = Math.sqrt(liveData.vx**2 + liveData.vy**2 + liveData.vz**2);
+  } else {
+    pos = interpolateTrajectory(metHours);
+  }
+
+  const moonPos = moonPosition(metHours);
+
+  // If we have Horizons trajectory but no live current data, derive velocity from trajectory
+  if (!speedKms) {
+    if (horizonsTrajectory && horizonsTrajectory.length > 1) {
+      // Find closest entry and use its velocity
+      let closest = horizonsTrajectory[0];
+      let minDiff = Math.abs(horizonsTrajectory[0].t - metHours);
+      for (const e of horizonsTrajectory) {
+        const diff = Math.abs(e.t - metHours);
+        if (diff < minDiff) { minDiff = diff; closest = e; }
+      }
+      if (closest.vx !== undefined) {
+        speedKms = Math.sqrt(closest.vx**2 + closest.vy**2 + closest.vz**2);
+      }
+    }
+    if (!speedKms) {
+      speedKms = getVelocity(metHours, pos, moonPos);
+    }
+  }
+  const distEarthCenter = pos.length();
+  const distEarthSurface = Math.max(0, distEarthCenter - EARTH_RADIUS);
+  const distMoonCenter = pos.distanceTo(moonPos);
+  const distMoonSurface = Math.max(0, distMoonCenter - MOON_RADIUS);
+  const altitude = distEarthSurface;
+  const speedKmh = speedKms * 3600;
+
+  // Sub-spacecraft point (lat/lon)
+  const lat = Math.asin(pos.z / distEarthCenter) * 180 / Math.PI;
+  const lon = Math.atan2(pos.y, pos.x) * 180 / Math.PI;
+  // Adjust for Earth rotation
+  const earthRotDeg = (metMs / 86400000) * 360; // degrees rotated since launch
+  const adjustedLon = ((lon - earthRotDeg) % 360 + 540) % 360 - 180;
+
+  // Phase
+  let phase = PHASES[PHASES.length - 1];
+  for (const p of PHASES) {
+    if (metHours >= p.start && metHours < p.end) { phase = p; break; }
+  }
+
+  return {
+    metMs, metHours, pos, moonPos,
+    speedKmh, distEarthSurface, distMoonSurface, altitude,
+    lat, lon: adjustedLon, phase,
+    missionDay: Math.floor(metHours / 24) + 1,
+  };
+}
+
+// ============================================================
+// THREE.JS SCENE
+// ============================================================
+const canvas = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 10, 2000000);
+
+// Scene scale: 1 unit = 1 km (but we scale bodies for visibility)
+let toScale = false;
+const BODY_SCALE_EXAGGERATED = 2;
+
+// Starfield
+function createStarfield() {
+  const geo = new THREE.BufferGeometry();
+  const count = 8000;
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = 800000 + Math.random() * 400000;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i*3+2] = r * Math.cos(phi);
+    const brightness = 0.3 + Math.random() * 0.7;
+    const tint = Math.random();
+    colors[i*3] = brightness * (0.8 + tint * 0.2);
+    colors[i*3+1] = brightness * (0.85 + tint * 0.15);
+    colors[i*3+2] = brightness;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({ size: 400, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 0.8 });
+  return new THREE.Points(geo, mat);
+}
+scene.add(createStarfield());
+
+// Earth
+function createEarth() {
+  const group = new THREE.Group();
+
+  const earthGeo = new THREE.SphereGeometry(1, 64, 64);
+
+  // Multi-layer Earth for a good look without textures
+  const earthMat = new THREE.MeshPhongMaterial({
+    color: 0x1a5276,
+    emissive: 0x0a1a2a,
+    specular: 0x333333,
+    shininess: 25,
+  });
+  const earth = new THREE.Mesh(earthGeo, earthMat);
+  group.add(earth);
+
+  // Atmosphere glow
+  const atmosGeo = new THREE.SphereGeometry(1.04, 48, 48);
+  const atmosMat = new THREE.MeshBasicMaterial({
+    color: 0x4488ff,
+    transparent: true,
+    opacity: 0.12,
+    side: THREE.BackSide,
+  });
+  group.add(new THREE.Mesh(atmosGeo, atmosMat));
+
+  // Outer glow
+  const glowGeo = new THREE.SphereGeometry(1.15, 32, 32);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0x3366cc,
+    transparent: true,
+    opacity: 0.06,
+    side: THREE.BackSide,
+  });
+  group.add(new THREE.Mesh(glowGeo, glowMat));
+
+  return group;
+}
+
+const earthGroup = createEarth();
+scene.add(earthGroup);
+
+// Moon
+function createMoon() {
+  const group = new THREE.Group();
+  const moonGeo = new THREE.SphereGeometry(1, 48, 48);
+  const moonMat = new THREE.MeshPhongMaterial({
+    color: 0x888888,
+    emissive: 0x111111,
+    specular: 0x222222,
+    shininess: 5,
+  });
+  group.add(new THREE.Mesh(moonGeo, moonMat));
+  return group;
+}
+
+const moonGroup = createMoon();
+scene.add(moonGroup);
+
+// Trajectory line (colored by day)
+let trajectoryLine;
+function buildTrajectoryLine() {
+  if (trajectoryLine) scene.remove(trajectoryLine);
+
+  const group = new THREE.Group();
+  const totalPoints = 1200;
+  const maxT = WAYPOINTS[WAYPOINTS.length - 1].t;
+
+  for (let day = 0; day < 10; day++) {
+    const dayStartH = day * 24;
+    const dayEndH = Math.min((day + 1) * 24, maxT);
+    const pointsInDay = Math.max(2, Math.round((dayEndH - dayStartH) / maxT * totalPoints));
+
+    const positions = [];
+    for (let i = 0; i <= pointsInDay; i++) {
+      const t = dayStartH + (dayEndH - dayStartH) * (i / pointsInDay);
+      const p = interpolateTrajectory(t);
+      positions.push(p.x, p.y, p.z);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const mat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(DAY_COLORS[day]),
+      transparent: true,
+      opacity: 0.7,
+      linewidth: 1,
+    });
+    group.add(new THREE.Line(geo, mat));
+  }
+
+  trajectoryLine = group;
+  scene.add(trajectoryLine);
+}
+buildTrajectoryLine();
+
+// Spacecraft marker — bigger, brighter, always on top
+const scGroup = new THREE.Group();
+scGroup.renderOrder = 999;
+
+// Core bright dot
+const scGeo = new THREE.SphereGeometry(1, 16, 16);
+const scMat = new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false });
+const scMesh = new THREE.Mesh(scGeo, scMat);
+scMesh.renderOrder = 999;
+scGroup.add(scMesh);
+
+// Inner glow
+const scGlow1Geo = new THREE.SphereGeometry(2, 16, 16);
+const scGlow1Mat = new THREE.MeshBasicMaterial({ color: 0xaaddff, transparent: true, opacity: 0.5, depthTest: false });
+const scGlow1 = new THREE.Mesh(scGlow1Geo, scGlow1Mat);
+scGlow1.renderOrder = 998;
+scGroup.add(scGlow1);
+
+// Outer glow
+const scGlow2Geo = new THREE.SphereGeometry(4, 16, 16);
+const scGlow2Mat = new THREE.MeshBasicMaterial({ color: 0x4da6ff, transparent: true, opacity: 0.25, depthTest: false });
+const scGlow2 = new THREE.Mesh(scGlow2Geo, scGlow2Mat);
+scGlow2.renderOrder = 997;
+scGroup.add(scGlow2);
+
+// Big halo
+const scHaloGeo = new THREE.SphereGeometry(8, 16, 16);
+const scHaloMat = new THREE.MeshBasicMaterial({ color: 0x2266cc, transparent: true, opacity: 0.12, depthTest: false });
+const scHalo = new THREE.Mesh(scHaloGeo, scHaloMat);
+scHalo.renderOrder = 996;
+scGroup.add(scHalo);
+
+// Pulse ring
+const ringGeo = new THREE.RingGeometry(5, 6.5, 32);
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x4da6ff, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthTest: false });
+const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+scGroup.add(ringMesh);
+
+scene.add(scGroup);
+
+// Point light at spacecraft for subtle illumination
+const scLight = new THREE.PointLight(0xffaa44, 0.5, 60000);
+scene.add(scLight);
+
+// Trajectory trail (bright line from trajectory start to current position)
+const TRAIL_POINTS = 600;
+const trailGeo = new THREE.BufferGeometry();
+const trailPositions = new Float32Array(TRAIL_POINTS * 3);
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+const trailMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+const trailLine = new THREE.Line(trailGeo, trailMat);
+scene.add(trailLine);
+
+// Earth → Moon line (faint)
+const emLineGeo = new THREE.BufferGeometry();
+emLineGeo.setAttribute('position', new THREE.Float32BufferAttribute([0,0,0, 1,0,0], 3));
+const emLineMat = new THREE.LineBasicMaterial({ color: 0x4da6ff, transparent: true, opacity: 0.08 });
+const emLine = new THREE.Line(emLineGeo, emLineMat);
+scene.add(emLine);
+
+// Spacecraft → Earth distance line (dashed)
+const scEarthLineGeo = new THREE.BufferGeometry();
+scEarthLineGeo.setAttribute('position', new THREE.Float32BufferAttribute([0,0,0, 1,0,0], 3));
+const scEarthLineMat = new THREE.LineDashedMaterial({ color: 0x4da6ff, transparent: true, opacity: 0.15, dashSize: 3000, gapSize: 2000 });
+const scEarthLine = new THREE.Line(scEarthLineGeo, scEarthLineMat);
+scene.add(scEarthLine);
+
+// Spacecraft → Moon distance line (dashed)
+const scMoonLineGeo = new THREE.BufferGeometry();
+scMoonLineGeo.setAttribute('position', new THREE.Float32BufferAttribute([0,0,0, 1,0,0], 3));
+const scMoonLineMat = new THREE.LineDashedMaterial({ color: 0x888888, transparent: true, opacity: 0.1, dashSize: 3000, gapSize: 2000 });
+const scMoonLine = new THREE.Line(scMoonLineGeo, scMoonLineMat);
+scene.add(scMoonLine);
+
+// Labels (sprite-based)
+let showLabels = true;
+function makeLabel(text, color = '#ffffff') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.font = '28px Orbitron, monospace';
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.fillText(text, 128, 40);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(20000, 5000, 1);
+  return sprite;
+}
+
+const earthLabel = makeLabel('EARTH', '#4da6ff');
+const moonLabel = makeLabel('MOON', '#aaaaaa');
+scene.add(earthLabel);
+scene.add(moonLabel);
+
+// Lights
+const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+sun.position.set(500000, 200000, 300000);
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x223344, 0.8));
+
+// ============================================================
+// DAY TIMELINE UI
+// ============================================================
+const timelineEl = document.getElementById('timeline');
+for (let d = 1; d <= 10; d++) {
+  const div = document.createElement('div');
+  div.className = 'day-marker';
+  div.innerHTML = `<div class="day-bar" style="background:${DAY_COLORS[d-1]}" id="day-bar-${d}"></div>
+    <div class="day-label" id="day-lbl-${d}">D${d}</div>`;
+  timelineEl.appendChild(div);
+}
+
+// ============================================================
+// MINI MAP
+// ============================================================
+const minimapCanvas = document.getElementById('minimap');
+const mctx = minimapCanvas.getContext('2d');
+
+// Simple coastline data (very approximate, major landmasses as polygons)
+// We'll draw a simple world with colored ocean and green land approximations
+function drawMinimap(lat, lon) {
+  const W = minimapCanvas.width;
+  const H = minimapCanvas.height;
+  mctx.clearRect(0, 0, W, H);
+
+  // Ocean
+  mctx.fillStyle = '#0a1a3a';
+  mctx.fillRect(0, 0, W, H);
+
+  // Simple continent outlines (approximate bounding boxes)
+  mctx.fillStyle = 'rgba(30, 80, 50, 0.6)';
+  // North America
+  fillLatLon(mctx, W, H, [[-170,72],[-60,72],[-60,15],[-100,15],[-130,30],[-170,55]]);
+  // South America
+  fillLatLon(mctx, W, H, [[-80,12],[-35,5],[-35,-55],[-75,-55],[-80,-5]]);
+  // Europe
+  fillLatLon(mctx, W, H, [[-10,70],[40,70],[45,35],[-10,35]]);
+  // Africa
+  fillLatLon(mctx, W, H, [[-20,37],[50,37],[50,-35],[10,-35],[-20,5]]);
+  // Asia
+  fillLatLon(mctx, W, H, [[40,70],[180,70],[180,5],[95,5],[60,25],[40,35]]);
+  // Australia
+  fillLatLon(mctx, W, H, [[112,-10],[155,-10],[155,-40],[112,-40]]);
+
+  // Grid lines
+  mctx.strokeStyle = 'rgba(80,160,255,0.1)';
+  mctx.lineWidth = 0.5;
+  for (let la = -60; la <= 60; la += 30) {
+    const y = H/2 - (la / 90) * (H/2);
+    mctx.beginPath(); mctx.moveTo(0, y); mctx.lineTo(W, y); mctx.stroke();
+  }
+  for (let lo = -150; lo <= 180; lo += 30) {
+    const x = (lo + 180) / 360 * W;
+    mctx.beginPath(); mctx.moveTo(x, 0); mctx.lineTo(x, H); mctx.stroke();
+  }
+
+  // Sub-spacecraft point
+  const px = ((lon + 180) / 360) * W;
+  const py = (H / 2) - (lat / 90) * (H / 2);
+
+  // Crosshair
+  mctx.strokeStyle = '#ff4444';
+  mctx.lineWidth = 1;
+  mctx.beginPath();
+  mctx.moveTo(px - 12, py); mctx.lineTo(px + 12, py);
+  mctx.moveTo(px, py - 12); mctx.lineTo(px, py + 12);
+  mctx.stroke();
+
+  // Dot
+  mctx.beginPath();
+  mctx.arc(px, py, 4, 0, Math.PI * 2);
+  mctx.fillStyle = '#ff4444';
+  mctx.fill();
+
+  // Glow
+  const grad = mctx.createRadialGradient(px, py, 0, px, py, 20);
+  grad.addColorStop(0, 'rgba(255,68,68,0.4)');
+  grad.addColorStop(1, 'rgba(255,68,68,0)');
+  mctx.fillStyle = grad;
+  mctx.fillRect(px - 20, py - 20, 40, 40);
+
+  // Update text
+  const latDir = lat >= 0 ? 'N' : 'S';
+  const lonDir = lon >= 0 ? 'E' : 'W';
+  document.getElementById('subpoint-info').textContent =
+    `${Math.abs(lat).toFixed(2)}° ${latDir}, ${Math.abs(lon).toFixed(2)}° ${lonDir}`;
+}
+
+function fillLatLon(ctx, W, H, points) {
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = ((p[0] + 180) / 360) * W;
+    const y = (H/2) - (p[1] / 90) * (H/2);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ============================================================
+// FORMAT HELPERS
+// ============================================================
+function formatMET(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hrs = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  return `T+ ${String(days).padStart(2,'0')}:${String(hrs).padStart(2,'0')}:${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+}
+
+function formatNum(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 10000) return Math.round(n).toLocaleString();
+  if (n >= 100) return Math.round(n).toLocaleString();
+  return n.toFixed(1);
+}
+
+// ============================================================
+// SCALE TOGGLE
+// ============================================================
+window.toggleScale = function() {
+  toScale = !toScale;
+  document.getElementById('btn-scale').classList.toggle('active', toScale);
+  document.getElementById('btn-scale').textContent = toScale ? 'EXAGGERATED' : 'TO SCALE';
+};
+
+window.toggleLabels = function() {
+  showLabels = !showLabels;
+  document.getElementById('btn-labels').classList.toggle('active', !showLabels);
+  earthLabel.visible = showLabels;
+  moonLabel.visible = showLabels;
+  document.getElementById('sc-marker').querySelector('.sc-label-tag').style.display = showLabels ? '' : 'none';
+};
+
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
+function animate() {
+  requestAnimationFrame(animate);
+
+  const state = getMissionState();
+  const t = performance.now() * 0.001; // seconds since page load
+
+  // Update body scales
+  const bodyScale = toScale ? 1.0 : BODY_SCALE_EXAGGERATED;
+  earthGroup.scale.setScalar(EARTH_RADIUS * bodyScale);
+  moonGroup.scale.setScalar(MOON_RADIUS * bodyScale);
+
+  // Spacecraft marker scale — make it very visible
+  const scScale = toScale ? 2000 : 4500;
+  scGroup.scale.setScalar(scScale);
+
+  // Update bright trail line (last portion of trajectory leading to spacecraft)
+  const trailStartH = Math.max(0, state.metHours - 12); // 12-hour trail
+  const trailEndH = state.metHours;
+  const trailCount = Math.min(TRAIL_POINTS, Math.max(2, Math.ceil((trailEndH - trailStartH) * 10)));
+  for (let i = 0; i < TRAIL_POINTS; i++) {
+    if (i < trailCount) {
+      const tH = trailStartH + (trailEndH - trailStartH) * (i / (trailCount - 1));
+      const p = interpolateTrajectory(tH);
+      trailPositions[i*3] = p.x;
+      trailPositions[i*3+1] = p.y;
+      trailPositions[i*3+2] = p.z;
+    } else {
+      // Park unused vertices at last valid position
+      trailPositions[i*3] = trailPositions[(trailCount-1)*3];
+      trailPositions[i*3+1] = trailPositions[(trailCount-1)*3+1];
+      trailPositions[i*3+2] = trailPositions[(trailCount-1)*3+2];
+    }
+  }
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.setDrawRange(0, trailCount);
+
+  // Update Moon position
+  moonGroup.position.copy(state.moonPos);
+
+  // Earth-Moon line
+  const emPositions = emLine.geometry.attributes.position;
+  emPositions.setXYZ(0, 0, 0, 0);
+  emPositions.setXYZ(1, state.moonPos.x, state.moonPos.y, state.moonPos.z);
+  emPositions.needsUpdate = true;
+
+  // Spacecraft position
+  scGroup.position.copy(state.pos);
+  scLight.position.copy(state.pos);
+
+  // Distance lines
+  const scEPos = scEarthLine.geometry.attributes.position;
+  scEPos.setXYZ(0, state.pos.x, state.pos.y, state.pos.z);
+  scEPos.setXYZ(1, 0, 0, 0);
+  scEPos.needsUpdate = true;
+  scEarthLine.computeLineDistances();
+
+  const scMPos = scMoonLine.geometry.attributes.position;
+  scMPos.setXYZ(0, state.pos.x, state.pos.y, state.pos.z);
+  scMPos.setXYZ(1, state.moonPos.x, state.moonPos.y, state.moonPos.z);
+  scMPos.needsUpdate = true;
+  scMoonLine.computeLineDistances();
+
+  // Pulse ring animation
+  const pulse = 1 + Math.sin(t * 2) * 0.3;
+  ringMesh.scale.setScalar(pulse);
+  ringMat.opacity = 0.3 - Math.sin(t * 2) * 0.15;
+  ringMesh.lookAt(camera.position);
+
+  // Labels position
+  const labelOffset = EARTH_RADIUS * bodyScale * 1.5 + 5000;
+  earthLabel.position.set(0, -labelOffset, 0);
+  moonLabel.position.set(state.moonPos.x, state.moonPos.y - MOON_RADIUS * bodyScale * 1.5 - 5000, state.moonPos.z);
+
+  // Camera: center on trajectory midpoint between Earth and Moon
+  const centerX = state.moonPos.x * 0.42;
+  const centerY = state.moonPos.y * 0.42 - 10000;
+  const centerZ = 0;
+
+  const camDist = toScale ? 520000 : 580000;
+  // Infinity-sign wobble: use sin(t) for one axis and sin(2t) for the other → lemniscate
+  const wobbleSpeed = 0.035;
+  const azWobble = Math.sin(t * wobbleSpeed) * 0.22;
+  const elWobble = Math.sin(t * wobbleSpeed * 2) * 0.08; // double freq for figure-8
+
+  const baseElev = 0.5; // ~30 degrees from top
+  const az = azWobble;
+  const el = baseElev + elWobble;
+
+  camera.position.set(
+    centerX + camDist * Math.sin(az) * Math.cos(el),
+    centerY - camDist * Math.sin(el),
+    centerZ + camDist * Math.cos(az) * Math.cos(el)
+  );
+  camera.lookAt(centerX, centerY, centerZ);
+  camera.up.set(0, 1, 0);
+
+  // Project spacecraft to screen for HTML overlay
+  const scScreen = state.pos.clone().project(camera);
+  const scMarkerEl = document.getElementById('sc-marker');
+  if (scScreen.z < 1) { // in front of camera
+    const sx = (scScreen.x * 0.5 + 0.5) * window.innerWidth;
+    const sy = (-scScreen.y * 0.5 + 0.5) * window.innerHeight;
+    scMarkerEl.style.left = sx + 'px';
+    scMarkerEl.style.top = sy + 'px';
+    scMarkerEl.style.display = 'block';
+  } else {
+    scMarkerEl.style.display = 'none';
+  }
+
+  // Update UI
+  document.getElementById('met-display').textContent = formatMET(state.metMs);
+  document.getElementById('val-speed').textContent = formatNum(state.speedKmh);
+  document.getElementById('val-earth').textContent = formatNum(state.distEarthSurface);
+  document.getElementById('val-moon').textContent = formatNum(state.distMoonSurface);
+  document.getElementById('val-alt').textContent = formatNum(state.altitude);
+
+  document.getElementById('phase-name').textContent = state.phase.name;
+  document.getElementById('phase-desc').textContent = state.phase.desc;
+
+  // Day timeline
+  for (let d = 1; d <= 10; d++) {
+    const bar = document.getElementById(`day-bar-${d}`);
+    const lbl = document.getElementById(`day-lbl-${d}`);
+    const isActive = d === state.missionDay;
+    const isPast = d < state.missionDay;
+    bar.classList.toggle('active', isActive);
+    lbl.classList.toggle('active', isActive);
+    bar.style.opacity = isPast ? '0.3' : isActive ? '1' : '0.5';
+  }
+
+  // Minimap (update every ~500ms)
+  if (!animate._lastMap || t - animate._lastMap > 0.5) {
+    drawMinimap(state.lat, state.lon);
+    animate._lastMap = t;
+  }
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// Handle resize
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+</script>
+</body>
+</html>
