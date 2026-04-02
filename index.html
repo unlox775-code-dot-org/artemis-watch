@@ -1429,41 +1429,44 @@ function drawMinimap(lat, lon, metHours) {
     groundTrackTime = t;
   }
 
-  // Draw past track (orange, fading)
+  // Draw past track (day-colored, fading)
   if (groundTrackCache.past.length > 1) {
     for (let i = 1; i < groundTrackCache.past.length; i++) {
       const p0 = groundTrackCache.past[i - 1];
       const p1 = groundTrackCache.past[i];
-      // Skip wrap-around segments
       if (Math.abs(p1.lon - p0.lon) > 180) continue;
-      const alpha = 0.8 * (1 - p1.age);
+      const alpha = 0.9 * (1 - p1.age);
       if (alpha < 0.02) continue;
-      mctx.strokeStyle = `rgba(255, 140, 60, ${alpha})`;
+      mctx.globalAlpha = alpha;
+      mctx.strokeStyle = DAY_COLORS[p1.day] || '#ff8844';
       mctx.lineWidth = 2;
       mctx.beginPath();
       mctx.moveTo(lonToX(p0.lon), latToY(p0.lat));
       mctx.lineTo(lonToX(p1.lon), latToY(p1.lat));
       mctx.stroke();
     }
+    mctx.globalAlpha = 1;
   }
 
-  // Draw future track (blue, fading, dashed)
+  // Draw future track (day-colored, fading, dashed)
   if (groundTrackCache.future.length > 1) {
+    mctx.setLineDash([4, 4]);
     for (let i = 1; i < groundTrackCache.future.length; i++) {
       const p0 = groundTrackCache.future[i - 1];
       const p1 = groundTrackCache.future[i];
       if (Math.abs(p1.lon - p0.lon) > 180) continue;
-      const alpha = 0.6 * (1 - p1.age);
+      const alpha = 0.7 * (1 - p1.age);
       if (alpha < 0.02) continue;
-      mctx.strokeStyle = `rgba(80, 180, 255, ${alpha})`;
+      mctx.globalAlpha = alpha;
+      mctx.strokeStyle = DAY_COLORS[p1.day] || '#4488ff';
       mctx.lineWidth = 1.5;
-      mctx.setLineDash([4, 4]);
       mctx.beginPath();
       mctx.moveTo(lonToX(p0.lon), latToY(p0.lat));
       mctx.lineTo(lonToX(p1.lon), latToY(p1.lat));
       mctx.stroke();
     }
     mctx.setLineDash([]);
+    mctx.globalAlpha = 1;
   }
 
   // Sub-spacecraft point
