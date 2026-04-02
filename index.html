@@ -1581,17 +1581,39 @@ function formatNum(n) {
 }
 
 // ============================================================
-// TOGGLES
+// TOGGLES (persisted to localStorage)
 // ============================================================
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('artemis-settings'));
+    if (s) {
+      if (typeof s.toScale === 'boolean') { toScale = s.toScale; }
+      if (typeof s.useMiles === 'boolean') { useMiles = s.useMiles; }
+      if (typeof s.showLabels === 'boolean') { showLabels = s.showLabels; }
+    }
+  } catch(e) {}
+}
+function saveSettings() {
+  try { localStorage.setItem('artemis-settings', JSON.stringify({ toScale, useMiles, showLabels })); } catch(e) {}
+}
 let showLabels = true;
+loadSettings();
+// Apply loaded settings to UI
+document.getElementById('btn-scale').textContent = toScale ? 'TO SCALE' : 'EXAGGERATED';
+document.getElementById('btn-labels').classList.toggle('active', showLabels);
+document.getElementById('btn-units').textContent = useMiles ? 'MILES' : 'KM';
+if (!showLabels) { const tag = document.getElementById('sc-marker')?.querySelector('.sc-label-tag'); if (tag) tag.style.display = 'none'; }
+
 window.toggleScale = function() {
   toScale = !toScale;
   document.getElementById('btn-scale').textContent = toScale ? 'TO SCALE' : 'EXAGGERATED';
+  saveSettings();
 };
 window.toggleLabels = function() {
   showLabels = !showLabels;
   document.getElementById('btn-labels').classList.toggle('active', showLabels);
   document.getElementById('sc-marker').querySelector('.sc-label-tag').style.display = showLabels ? '' : 'none';
+  saveSettings();
 };
 window.toggleUnits = function() {
   useMiles = !useMiles;
@@ -1600,6 +1622,7 @@ window.toggleUnits = function() {
   btn.classList.toggle('active', true);
   // Force immediate ticker refresh
   if (animate._tickerFrame) animate._tickerFrame = 299;
+  saveSettings();
 };
 
 // ============================================================
@@ -1792,7 +1815,7 @@ function animate() {
   // Earth sidereal rotation: apply GMST via quaternion around scene Z (polar axis after tilt)
   const gmst = getGMST(new Date());
   // Reset to base tilt, then apply GMST around Z (the polar axis in scene coords)
-  earthMainMesh.quaternion.setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2);
+  earthMainMesh.quaternion.setFromAxisAngle(new THREE.Vector3(1,0,0), Math.PI/2);
   const gmstQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), gmst);
   earthMainMesh.quaternion.premultiply(gmstQuat);
 
