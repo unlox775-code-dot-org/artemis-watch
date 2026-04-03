@@ -280,6 +280,7 @@
   <button class="ctrl-btn active" id="btn-scale" onclick="toggleScale()">EXAGGERATED</button>
   <button class="ctrl-btn active" id="btn-labels" onclick="toggleLabels()">LABELS</button>
   <button class="ctrl-btn active" id="btn-units" onclick="toggleUnits()">MILES</button>
+  <button class="ctrl-btn" id="btn-invert" onclick="toggleInvert()">🖱 INVERT</button>
 </div>
 
 <div id="datasource">
@@ -1508,8 +1509,9 @@ function handleDragStart(x, y) {
 
 function handleDragMove(x, y) {
   if (!isDragging) return;
-  const dx = (x - prevDragX) / window.innerWidth * DRAG_SENSITIVITY;
-  const dy = (y - prevDragY) / window.innerHeight * DRAG_SENSITIVITY;
+  const inv = invertDrag ? -1 : 1;
+  const dx = inv * (x - prevDragX) / window.innerWidth * DRAG_SENSITIVITY;
+  const dy = inv * (y - prevDragY) / window.innerHeight * DRAG_SENSITIVITY;
   prevDragX = x;
   prevDragY = y;
 
@@ -1738,18 +1740,21 @@ function loadSettings() {
       if (typeof s.toScale === 'boolean') { toScale = s.toScale; }
       if (typeof s.useMiles === 'boolean') { useMiles = s.useMiles; }
       if (typeof s.showLabels === 'boolean') { showLabels = s.showLabels; }
+      if (typeof s.invertDrag === 'boolean') { invertDrag = s.invertDrag; }
     }
   } catch(e) {}
 }
 function saveSettings() {
-  try { localStorage.setItem('artemis-settings', JSON.stringify({ toScale, useMiles, showLabels })); } catch(e) {}
+  try { localStorage.setItem('artemis-settings', JSON.stringify({ toScale, useMiles, showLabels, invertDrag })); } catch(e) {}
 }
 let showLabels = true;
+let invertDrag = false;
 loadSettings();
 // Apply loaded settings to UI
 document.getElementById('btn-scale').textContent = toScale ? 'TO SCALE' : 'EXAGGERATED';
 document.getElementById('btn-labels').classList.toggle('active', showLabels);
 document.getElementById('btn-units').textContent = useMiles ? 'MILES' : 'KM';
+document.getElementById('btn-invert').classList.toggle('active', invertDrag);
 if (!showLabels) { const tag = document.getElementById('sc-marker')?.querySelector('.sc-label-tag'); if (tag) tag.style.display = 'none'; }
 
 window.toggleScale = function() {
@@ -1761,6 +1766,11 @@ window.toggleLabels = function() {
   showLabels = !showLabels;
   document.getElementById('btn-labels').classList.toggle('active', showLabels);
   document.getElementById('sc-marker').querySelector('.sc-label-tag').style.display = showLabels ? '' : 'none';
+  saveSettings();
+};
+window.toggleInvert = function() {
+  invertDrag = !invertDrag;
+  document.getElementById('btn-invert').classList.toggle('active', invertDrag);
   saveSettings();
 };
 window.toggleUnits = function() {
