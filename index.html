@@ -2123,8 +2123,8 @@ function animate() {
   if (!animate._tickerFrame) animate._tickerFrame = 0;
   if (animate._tickerFrame++ % 300 === 0) {
     const ticker = document.getElementById('live-ticker');
-    if (horizonsTrajectory) {
-      const src = arowCreationDate ? 'AROW' : 'Horizons';
+    if (state.speedKmh > 0) {
+      const src = arowCreationDate ? 'AROW' : (horizonsTrajectory ? 'Horizons' : 'Projected');
       ticker.innerHTML = `<span class="ticker-time">${src}</span> &middot; <span class="ticker-data">${formatNum(state.speedKmh * uf)} ${su} &middot; ${formatNum(state.distEarthSurface * uf)} ${du} from Earth</span>`;
     } else {
       ticker.innerHTML = '<span class="ticker-time">Awaiting telemetry...</span>';
