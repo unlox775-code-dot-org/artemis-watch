@@ -2119,15 +2119,23 @@ function animate() {
   document.getElementById('phase-name').textContent = state.phase.name;
   document.getElementById('phase-desc').textContent = state.phase.desc;
 
-  // Live telemetry ticker — same data as panels, updates every ~1s
+  // Live telemetry ticker — shows last confirmed data point (not interpolated)
   if (!animate._tickerFrame) animate._tickerFrame = 0;
-  if (animate._tickerFrame++ % 60 === 0) {
+  if (animate._tickerFrame++ % 300 === 0) {
     const ticker = document.getElementById('live-ticker');
-    if (state.speedKmh > 0) {
-      const src = arowCreationDate ? 'AROW' : (horizonsTrajectory ? 'Horizons' : 'Projected');
-      ticker.innerHTML = `<span class="ticker-time">${src}</span> &middot; <span class="ticker-data">${formatNum(state.speedKmh * uf)} ${su} &middot; ${formatNum(state.distEarthSurface * uf)} ${du} from Earth</span>`;
+    if (liveData && lastFetchTime) {
+      const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
+      const min = Math.floor(ago / 60), sec = ago % 60;
+      const agoStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
+      const liveSpeed = Math.sqrt(liveData.vx**2 + liveData.vy**2 + liveData.vz**2) * 3600;
+      const liveDist = Math.sqrt(liveData.x**2 + liveData.y**2 + liveData.z**2) - 6371;
+      const luf = useMiles ? KM_TO_MI : 1;
+      const lsu = useMiles ? 'mph' : 'km/h';
+      const ldu = useMiles ? 'mi' : 'km';
+      const src = arowCreationDate ? 'AROW' : 'Horizons';
+      ticker.innerHTML = `<span class="ticker-time">Live from ${src} ${agoStr} ago</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
     } else {
-      ticker.innerHTML = '<span class="ticker-time">Awaiting telemetry...</span>';
+      ticker.innerHTML = '<span class="ticker-time">Awaiting live telemetry...</span>';
     }
   }
 
