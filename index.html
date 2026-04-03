@@ -2129,12 +2129,10 @@ function animate() {
       const luf = useMiles ? KM_TO_MI : 1;
       const lsu = useMiles ? 'mph' : 'km/h';
       const ldu = useMiles ? 'mi' : 'km';
-      // Show data source and freshness
+      // Show data source
       let srcLabel;
       if (arowCreationDate) {
-        const cd = new Date(arowCreationDate + 'Z');
-        const agoMin = Math.round((Date.now() - cd.getTime()) / 60000);
-        srcLabel = agoMin < 120 ? `AROW ${agoMin}m ago` : `AROW ${Math.round(agoMin/60)}h ago`;
+        srcLabel = 'AROW v' + (arowVersion || '?');
       } else {
         const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
         const min = Math.floor(ago / 60), sec = ago % 60;
