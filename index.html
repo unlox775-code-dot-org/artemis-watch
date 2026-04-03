@@ -2129,14 +2129,17 @@ function animate() {
       const luf = useMiles ? KM_TO_MI : 1;
       const lsu = useMiles ? 'mph' : 'km/h';
       const ldu = useMiles ? 'mi' : 'km';
-      // Show data source
+      // Show data source and when we last fetched
       let srcLabel;
       if (arowCreationDate) {
-        srcLabel = 'AROW v' + (arowVersion || '?');
+        const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
+        const min = Math.floor(ago / 60), sec = ago % 60;
+        const agoStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
+        srcLabel = `Live ${agoStr} ago`;
       } else {
         const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
         const min = Math.floor(ago / 60), sec = ago % 60;
-        srcLabel = `Horizons ${min > 0 ? min + 'm ' + sec + 's' : sec + 's'} ago`;
+        srcLabel = `Live ${min > 0 ? min + 'm ' + sec + 's' : sec + 's'} ago`;
       }
       ticker.innerHTML = `<span class="ticker-time">${srcLabel}</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
     } else {
