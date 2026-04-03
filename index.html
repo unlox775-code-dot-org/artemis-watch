@@ -922,6 +922,21 @@ async function fetchFullTrajectoryRetry() {
 }
 
 async function fetchCurrentPosition() {
+  // If AROW data is loaded, use the closest data point as our confirmed live reading
+  if (horizonsTrajectory && horizonsTrajectory.length > 100) {
+    const now = new Date();
+    const metNow = (now - LAUNCH_UTC) / 3600000;
+    let closest = horizonsTrajectory.reduce((a,b) => Math.abs(a.t-metNow)<Math.abs(b.t-metNow)?a:b);
+    // Only use if within 30 min of now (data is relevant)
+    if (Math.abs(closest.t - metNow) < 0.5) {
+      liveData = closest;
+      lastFetchTime = now;
+      const src = arowCreationDate ? 'AROW' : 'Horizons';
+      document.getElementById('last-fetch').textContent = `Live (${src}): ${now.toLocaleTimeString()}`;
+      return;
+    }
+  }
+  // Fallback: fetch from Horizons API
   try {
     const now = new Date();
     const start = new Date(now.getTime()-1800000).toISOString().slice(0,19).replace('T',' ');
@@ -939,7 +954,7 @@ async function fetchCurrentPosition() {
         let closest = entries.reduce((a,b) => Math.abs(a.t-metNow)<Math.abs(b.t-metNow)?a:b);
         liveData = closest;
         lastFetchTime = now;
-        document.getElementById('last-fetch').textContent = `Live: ${now.toLocaleTimeString()}`;
+        document.getElementById('last-fetch').textContent = `Live (Horizons): ${now.toLocaleTimeString()}`;
       }
     }
   } catch(e) {
@@ -2119,31 +2134,23 @@ function animate() {
   document.getElementById('phase-name').textContent = state.phase.name;
   document.getElementById('phase-desc').textContent = state.phase.desc;
 
-  // Live telemetry ticker (update every 5s)
+  // Live telemetry ticker — shows last confirmed data point (not interpolated)
   if (!animate._tickerFrame) animate._tickerFrame = 0;
   if (animate._tickerFrame++ % 300 === 0) {
     const ticker = document.getElementById('live-ticker');
     if (liveData && lastFetchTime) {
+      const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
+      const min = Math.floor(ago / 60), sec = ago % 60;
+      const agoStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
       const liveSpeed = Math.sqrt(liveData.vx**2 + liveData.vy**2 + liveData.vz**2) * 3600;
       const liveDist = Math.sqrt(liveData.x**2 + liveData.y**2 + liveData.z**2) - 6371;
       const luf = useMiles ? KM_TO_MI : 1;
       const lsu = useMiles ? 'mph' : 'km/h';
       const ldu = useMiles ? 'mi' : 'km';
-      // Show data source and when we last fetched
-      let srcLabel;
-      if (arowCreationDate) {
-        const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
-        const min = Math.floor(ago / 60), sec = ago % 60;
-        const agoStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
-        srcLabel = `Live ${agoStr} ago`;
-      } else {
-        const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
-        const min = Math.floor(ago / 60), sec = ago % 60;
-        srcLabel = `Live ${min > 0 ? min + 'm ' + sec + 's' : sec + 's'} ago`;
-      }
-      ticker.innerHTML = `<span class="ticker-time">${srcLabel}</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
+      const src = arowCreationDate ? 'AROW' : 'Horizons';
+      ticker.innerHTML = `<span class="ticker-time">Live from ${src} ${agoStr} ago</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
     } else {
-      ticker.innerHTML = '<span class="ticker-time">Awaiting telemetry...</span>';
+      ticker.innerHTML = '<span class="ticker-time">Awaiting live telemetry...</span>';
     }
   }
 
