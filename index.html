@@ -922,6 +922,21 @@ async function fetchFullTrajectoryRetry() {
 }
 
 async function fetchCurrentPosition() {
+  // If AROW data is loaded, use the closest data point as our confirmed live reading
+  if (horizonsTrajectory && horizonsTrajectory.length > 100) {
+    const now = new Date();
+    const metNow = (now - LAUNCH_UTC) / 3600000;
+    let closest = horizonsTrajectory.reduce((a,b) => Math.abs(a.t-metNow)<Math.abs(b.t-metNow)?a:b);
+    // Only use if within 30 min of now (data is relevant)
+    if (Math.abs(closest.t - metNow) < 0.5) {
+      liveData = closest;
+      lastFetchTime = now;
+      const src = arowCreationDate ? 'AROW' : 'Horizons';
+      document.getElementById('last-fetch').textContent = `Live (${src}): ${now.toLocaleTimeString()}`;
+      return;
+    }
+  }
+  // Fallback: fetch from Horizons API
   try {
     const now = new Date();
     const start = new Date(now.getTime()-1800000).toISOString().slice(0,19).replace('T',' ');
@@ -939,7 +954,7 @@ async function fetchCurrentPosition() {
         let closest = entries.reduce((a,b) => Math.abs(a.t-metNow)<Math.abs(b.t-metNow)?a:b);
         liveData = closest;
         lastFetchTime = now;
-        document.getElementById('last-fetch').textContent = `Live: ${now.toLocaleTimeString()}`;
+        document.getElementById('last-fetch').textContent = `Live (Horizons): ${now.toLocaleTimeString()}`;
       }
     }
   } catch(e) {
