@@ -2119,9 +2119,9 @@ function animate() {
   document.getElementById('phase-name').textContent = state.phase.name;
   document.getElementById('phase-desc').textContent = state.phase.desc;
 
-  // Live telemetry ticker (update every 5s) — uses same data as panels
+  // Live telemetry ticker — same data as panels, updates every ~1s
   if (!animate._tickerFrame) animate._tickerFrame = 0;
-  if (animate._tickerFrame++ % 300 === 0) {
+  if (animate._tickerFrame++ % 60 === 0) {
     const ticker = document.getElementById('live-ticker');
     if (state.speedKmh > 0) {
       const src = arowCreationDate ? 'AROW' : (horizonsTrajectory ? 'Horizons' : 'Projected');
