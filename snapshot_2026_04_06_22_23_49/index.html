@@ -325,6 +325,10 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 // CONSTANTS
 // ============================================================
 const LAUNCH_UTC = new Date('2026-04-01T22:35:12Z');
+// Snapshot: simulate time starting from snapshot moment
+const SNAPSHOT_UTC = new Date('2026-04-06T22:23:49Z');
+const SNAPSHOT_PAGE_LOAD = Date.now();
+function snapshotNow() { return new Date(SNAPSHOT_UTC.getTime() + (Date.now() - SNAPSHOT_PAGE_LOAD)); }
 const SPLASHDOWN_UTC = new Date('2026-04-11T00:21:00Z');
 const EARTH_RADIUS = 6371;
 const MOON_RADIUS = 1737;
@@ -853,6 +857,14 @@ window._debug = { get hz() { return horizonsTrajectory; }, get wp() { return WAY
       console.log('Moon ephemeris loaded:', moonEntries.length, 'points');
     }
 
+    // Set ticker directly since animation loop ticker check may fire before data loads
+    const luf = useMiles ? KM_TO_MI : 1;
+    const lsu = useMiles ? 'mph' : 'km/h';
+    const ldu = useMiles ? 'mi' : 'km';
+    const liveSpeed = Math.sqrt(liveData.vx**2 + liveData.vy**2 + liveData.vz**2) * 3600;
+    const liveDist = Math.sqrt(liveData.x**2 + liveData.y**2 + liveData.z**2) - 6371;
+    document.getElementById('live-ticker').innerHTML =
+      `<span class="ticker-time">Snapshot — AROW data from Apr 6, 2026</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
     console.log('Snapshot data fully loaded');
   } catch(e) {
     console.error('Snapshot data load failed:', e);
@@ -1048,7 +1060,7 @@ function buildEarthTexture() {
 // COMPUTE STATE
 // ============================================================
 function getMissionState() {
-  const now = new Date();
+  const now = snapshotNow();
   const metMs = now - LAUNCH_UTC;
   const metHours = metMs / 3600000;
   let pos, speedKms;
@@ -1252,7 +1264,7 @@ scene.add(scLight);
 
 // Lights
 const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-sun.position.copy(getSunPosition(new Date()));
+sun.position.copy(getSunPosition(snapshotNow()));
 scene.add(sun);
 scene.add(new THREE.AmbientLight(0x334455, 1.2));
 
@@ -1280,7 +1292,7 @@ const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
 scene.add(sunGlow);
 
 // Planet meshes
-const planetData = computePlanetPositions(new Date());
+const planetData = computePlanetPositions(snapshotNow());
 const planetMeshes = {};
 for (const [name, data] of Object.entries(planetData)) {
   const mesh = new THREE.Mesh(
@@ -1819,14 +1831,14 @@ function animate() {
   moonGroup.position.copy(state.moonPos);
 
   // Earth sidereal rotation: apply GMST via quaternion around scene Z (polar axis after tilt)
-  const gmst = getGMST(new Date());
+  const gmst = getGMST(snapshotNow());
   // Reset to base tilt, then apply GMST around Z (the polar axis in scene coords)
   earthMainMesh.quaternion.setFromAxisAngle(new THREE.Vector3(1,0,0), Math.PI/2);
   const gmstQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), gmst);
   earthMainMesh.quaternion.premultiply(gmstQuat);
 
   // Sun position update
-  const sunPos = getSunPosition(new Date());
+  const sunPos = getSunPosition(snapshotNow());
   sun.position.copy(sunPos);
   const sunDir = sunPos.clone().normalize();
   const sunVisualDist = 1400000;
@@ -1994,21 +2006,17 @@ function animate() {
 
   // Live telemetry ticker — shows last confirmed data point (not interpolated)
   if (!animate._tickerFrame) animate._tickerFrame = 0;
-  if (animate._tickerFrame++ % 300 === 0) {
+  if (animate._tickerFrame++ % 60 === 0) {
     const ticker = document.getElementById('live-ticker');
     if (liveData && lastFetchTime) {
-      const ago = Math.round((Date.now() - lastFetchTime.getTime()) / 1000);
-      const min = Math.floor(ago / 60), sec = ago % 60;
-      const agoStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
       const liveSpeed = Math.sqrt(liveData.vx**2 + liveData.vy**2 + liveData.vz**2) * 3600;
       const liveDist = Math.sqrt(liveData.x**2 + liveData.y**2 + liveData.z**2) - 6371;
       const luf = useMiles ? KM_TO_MI : 1;
       const lsu = useMiles ? 'mph' : 'km/h';
       const ldu = useMiles ? 'mi' : 'km';
-      const src = arowCreationDate ? 'AROW' : 'Horizons';
-      ticker.innerHTML = `<span class="ticker-time">Live from ${src} ${agoStr} ago</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
+      ticker.innerHTML = `<span class="ticker-time">Snapshot — AROW data from Apr 6, 2026</span> &middot; <span class="ticker-data">${formatNum(liveSpeed*luf)} ${lsu} &middot; ${formatNum(liveDist*luf)} ${ldu} from Earth</span>`;
     } else {
-      ticker.innerHTML = '<span class="ticker-time">Awaiting live telemetry...</span>';
+      ticker.innerHTML = '<span class="ticker-time">Loading snapshot data...</span>';
     }
   }
 

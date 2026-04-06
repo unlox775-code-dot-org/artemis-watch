@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "9123"],
       "port": 9123
+    },
+    {
+      "name": "snapshot",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "9124", "-d", "snapshot_2026_04_06_22_23_49"],
+      "port": 9124
     }
   ]
 }
