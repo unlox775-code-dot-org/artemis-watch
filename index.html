@@ -779,11 +779,10 @@ async function fetchAROW() {
     if (!zipMatch) { console.warn('AROW: no OEM ZIP link found on page'); return false; }
     const zipUrl = zipMatch[1];
 
-    // Check version — skip if same as what we already have
-    const versionMatch = zipUrl.match(/v(\d+)/i);
-    const version = versionMatch ? versionMatch[1] : zipUrl;
+    // Check version — use full ZIP filename as version key (NASA changes naming between updates)
+    const version = zipUrl.split('/').pop().split('?')[0]; // e.g. "artemis-ii-oem-2026-04-06-pre-otc3-to-ei.zip"
     if (version === arowVersion && horizonsTrajectory) {
-      console.log('AROW: same version (v' + version + '), skipping');
+      console.log('AROW: same version (' + version + '), skipping');
       return true;
     }
 
@@ -800,7 +799,9 @@ async function fetchAROW() {
     const oemText = await zip.files[ascName].async('string');
 
     // Step 4: Parse OEM
-    const { creation, entries } = parseOEM(oemText);
+    const parsed = parseOEM(oemText);
+    let entries = parsed.entries;
+    const creation = parsed.creation;
     if (entries.length < 100) throw new Error('Too few OEM points: ' + entries.length);
 
     arowVersion = version;
@@ -808,7 +809,16 @@ async function fetchAROW() {
     arowZipUrl = zipUrl;
     console.log(`AROW: v${version}, created ${creation}, ${entries.length} data points`);
 
-    // Step 5: Apply as trajectory (replaces Horizons data — no need for fine perigee fetch, OEM is already high-res)
+    // Step 5: Merge with existing trajectory — newer OEM files may only cover current→future,
+    // so keep historical data points that predate the new OEM's start time
+    if (horizonsTrajectory && horizonsTrajectory.length > 0 && entries.length > 0) {
+      const newStart = entries[0].t;
+      const oldPts = horizonsTrajectory.filter(e => e.t < newStart);
+      if (oldPts.length > 0) {
+        entries = oldPts.concat(entries);
+        console.log(`AROW: merged ${oldPts.length} historical pts + ${entries.length - oldPts.length} new pts`);
+      }
+    }
     horizonsTrajectory = entries;
     WAYPOINTS = entries.map(e => ({t:e.t, x:e.x, y:e.y, z:e.z}));
     anchorTrajectory();
@@ -985,15 +995,14 @@ async function fetchMoonEphemeris() {
 
 window._debug = { get hz() { return horizonsTrajectory; }, get wp() { return WAYPOINTS; }, get live() { return liveData; }, get moon() { return moonEphemeris; } };
 
-// Primary: try AROW (JSC Flight Dynamics), fallback to Horizons
+// Load trajectory: Horizons for baseline, then AROW for latest operational data
 (async () => {
+  // First: fetch Horizons for full mission baseline (covers early flight data)
+  await fetchFullTrajectoryRetry();
+  // Then: overlay AROW on top (merges with Horizons, replacing overlapping segments with fresher data)
   const arowOk = await fetchAROW();
-  if (!arowOk) {
-    console.log('AROW unavailable, falling back to Horizons...');
-    await fetchFullTrajectoryRetry();
-  }
   console.log('Trajectory loaded:', horizonsTrajectory ? horizonsTrajectory.length + ' pts' : 'null',
-    arowOk ? '(AROW)' : '(Horizons)');
+    arowOk ? '(AROW + Horizons)' : '(Horizons only)');
   fetchCurrentPosition();
   fetchMoonEphemeris();
 })();
