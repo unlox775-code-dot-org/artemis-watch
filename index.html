@@ -587,32 +587,88 @@ const PRECOMPUTED_LAUNCH = [
 
 // Precomputed forward-propagated reentry to splashdown ~50mi off San Diego
 // 48 points: 2-body dynamics from last Horizons point, blended to known splashdown location
-const PRECOMPUTED_REENTRY = [
-{t:216.5333,x:13143,y:-15680,z:-7084},{t:216.5667,x:13074,y:-14986,z:-6920},
-{t:216.6000,x:12996,y:-14284,z:-6751},{t:216.6333,x:12911,y:-13572,z:-6579},
-{t:216.6667,x:12815,y:-12850,z:-6401},{t:216.7000,x:12710,y:-12117,z:-6218},
-{t:216.7333,x:12593,y:-11374,z:-6030},{t:216.7667,x:12464,y:-10619,z:-5836},
-{t:216.8000,x:12321,y:-9853,z:-5635},{t:216.8333,x:12163,y:-9075,z:-5428},
-{t:216.8667,x:11988,y:-8285,z:-5213},{t:216.9000,x:11795,y:-7482,z:-4990},
-{t:216.9333,x:11581,y:-6665,z:-4758},{t:216.9667,x:11344,y:-5835,z:-4517},
-{t:217.0000,x:11080,y:-4992,z:-4265},{t:217.0333,x:10787,y:-4135,z:-4002},
-{t:217.0667,x:10459,y:-3266,z:-3726},{t:217.0772,x:10348,y:-2988,z:-3636},
-{t:217.1024,x:10315,y:-2961,z:-3613},{t:217.1276,x:10220,y:-2882,z:-3546},
-{t:217.1528,x:10067,y:-2754,z:-3438},{t:217.1780,x:9860,y:-2582,z:-3293},
-{t:217.2032,x:9604,y:-2369,z:-3113},{t:217.2284,x:9304,y:-2119,z:-2902},
-{t:217.2536,x:8963,y:-1836,z:-2662},{t:217.2788,x:8586,y:-1523,z:-2398},
-{t:217.3040,x:8179,y:-1184,z:-2111},{t:217.3292,x:7744,y:-823,z:-1806},
-{t:217.3544,x:7288,y:-443,z:-1485},{t:217.3797,x:6813,y:-48,z:-1151},
-{t:217.4049,x:6325,y:358,z:-808},{t:217.4301,x:5828,y:771,z:-459},
-{t:217.4553,x:5327,y:1188,z:-106},{t:217.4805,x:4825,y:1605,z:246},
-{t:217.5057,x:4329,y:2019,z:595},{t:217.5309,x:3841,y:2424,z:938},
-{t:217.5561,x:3366,y:2819,z:1272},{t:217.5813,x:2909,y:3199,z:1593},
-{t:217.6065,x:2475,y:3560,z:1898},{t:217.6317,x:2067,y:3899,z:2185},
-{t:217.6569,x:1691,y:4213,z:2449},{t:217.6821,x:1350,y:4496,z:2689},
-{t:217.7073,x:1050,y:4746,z:2900},{t:217.7325,x:794,y:4959,z:3080},
-{t:217.7577,x:587,y:5131,z:3225},{t:217.7829,x:434,y:5258,z:3333},
-{t:217.8081,x:338,y:5337,z:3400},{t:217.8333,x:306,y:5365,z:3423},
-];
+// Fill trajectory gaps using 2-body Velocity Verlet propagation from a known state.
+// Used to bridge between Horizons end and AROW/PROP_MAN start, or to extend past data end.
+let PRECOMPUTED_REENTRY = [];
+function computeGapFill() {
+  if (!horizonsTrajectory || horizonsTrajectory.length < 10) return;
+  // Find the largest time gap in the trajectory
+  let gapStart = -1, gapEnd = -1, maxGap = 0;
+  for (let i = 0; i < horizonsTrajectory.length - 1; i++) {
+    const gap = horizonsTrajectory[i+1].t - horizonsTrajectory[i].t;
+    if (gap > maxGap) { maxGap = gap; gapStart = i; gapEnd = i+1; }
+  }
+  // Also check if we need to extend past the end of data
+  const SPLASH_T = 217.76;
+  const last = horizonsTrajectory[horizonsTrajectory.length - 1];
+  const endGap = SPLASH_T - last.t;
+
+  const pts = [];
+
+  // Fill internal gap if > 10 minutes
+  if (maxGap > 0.167 && gapStart >= 0 && horizonsTrajectory[gapStart].vx !== undefined) {
+    const from = horizonsTrajectory[gapStart];
+    const toT = horizonsTrajectory[gapEnd].t;
+    const gapPts = propagate2Body(from, toT);
+    pts.push(...gapPts);
+    console.log('Gap fill:', gapPts.length, 'pts from t=' + from.t.toFixed(2) + ' to t=' + toT.toFixed(2));
+  }
+
+  // Extend past end if needed
+  if (endGap > 0.05 && last.vx !== undefined) {
+    const extPts = propagate2Body(last, SPLASH_T + 0.05);
+    pts.push(...extPts);
+    console.log('End extend:', extPts.length, 'pts from t=' + last.t.toFixed(2) + ' to t=' + (SPLASH_T+0.05).toFixed(2));
+  }
+
+  PRECOMPUTED_REENTRY = pts;
+}
+
+function propagate2Body(from, endT) {
+  const GM = 398600.4418;
+  const Re = 6371;
+  const dt = 2; // 2-second steps for accuracy near Earth
+  let x = from.x, y = from.y, z = from.z;
+  let vx = from.vx, vy = from.vy, vz = from.vz;
+  let t = from.t;
+  const pts = [];
+  const maxSteps = Math.ceil((endT - t) * 3600 / dt) + 10;
+  for (let step = 0; step < maxSteps && t < endT; step++) {
+    if (step % 15 === 0) { // save every ~30s
+      pts.push({t: Math.round(t*10000)/10000, x: Math.round(x*10)/10, y: Math.round(y*10)/10, z: Math.round(z*10)/10});
+    }
+    let r = Math.sqrt(x*x + y*y + z*z);
+    let alt = r - Re;
+    let ax = -GM * x / (r*r*r);
+    let ay = -GM * y / (r*r*r);
+    let az = -GM * z / (r*r*r);
+    // Atmospheric drag below 130 km
+    if (alt < 130 && alt > 0) {
+      let v = Math.sqrt(vx*vx + vy*vy + vz*vz);
+      let rho = 1.225 * Math.exp(-Math.max(alt, 0) / 8.5);
+      let Cd = 1.2, A = 20, m = 26000;
+      let drag = 0.5 * rho * v * v * Cd * A / m / 1000;
+      if (v > 0) { ax -= drag * vx/v; ay -= drag * vy/v; az -= drag * vz/v; }
+    }
+    // Stop if hitting surface
+    if (alt <= 0) {
+      pts.push({t: Math.round(t*10000)/10000, x: Math.round(x*10)/10, y: Math.round(y*10)/10, z: Math.round(z*10)/10});
+      break;
+    }
+    // Velocity Verlet
+    let x2 = x + vx*dt + 0.5*ax*dt*dt;
+    let y2 = y + vy*dt + 0.5*ay*dt*dt;
+    let z2 = z + vz*dt + 0.5*az*dt*dt;
+    let r2 = Math.sqrt(x2*x2 + y2*y2 + z2*z2);
+    let ax2 = -GM * x2 / (r2*r2*r2);
+    let ay2 = -GM * y2 / (r2*r2*r2);
+    let az2 = -GM * z2 / (r2*r2*r2);
+    vx += 0.5*(ax+ax2)*dt; vy += 0.5*(ay+ay2)*dt; vz += 0.5*(az+az2)*dt;
+    x = x2; y = y2; z = z2;
+    t += dt / 3600;
+  }
+  return pts;
+}
 
 let WAYPOINTS = [
   { t: 0.0, x: 0, y: 6571, z: 0 },
@@ -741,6 +797,12 @@ let arowVersion = null, arowCreationDate = null, arowZipUrl = null;
 
 function parseOEM(text) {
   const lines = text.split('\n');
+
+  // Detect format: PROP_MAN (JSC internal) vs CCSDS OEM
+  if (lines[0] && lines[0].trim().startsWith('PROP_MAN')) {
+    return parsePropMan(text);
+  }
+
   const creationLine = lines.find(l => l.startsWith('CREATION_DATE'));
   const creation = creationLine ? creationLine.split('=')[1].trim() : null;
   // OEM is in EME2000 (equatorial J2000) — rotate to ecliptic J2000 to match Horizons
@@ -770,12 +832,55 @@ function parseOEM(text) {
   return { creation, entries };
 }
 
+function parsePropMan(text) {
+  // PROP_MAN format: M50 frame, feet, feet/sec, seconds-of-year epoch
+  // Header: line 1 = "PROP_MAN 11.0"
+  //         line 2 = year, ref epoch secs, ref values, "M50 FT FPS SEC"
+  //         line 3+ = epoch_sec  X  Y  Z  VX  VY  VZ  extra
+  const FT_TO_KM = 0.0003048;
+  const FPS_TO_KMS = 0.0003048;
+  const lines = text.split('\n');
+  const headerLine = lines[1]?.trim();
+  const headerParts = headerLine?.split(/\s+/);
+  const year = parseInt(headerParts?.[0]);
+  // Reference: Jan 1 of given year in UTC
+  const yearStart = new Date(Date.UTC(year || 2026, 0, 1));
+  // M50→J2000 frame rotation is ~0.01° — negligible, treat as EME2000
+  const obliquity = 23.4392911 * Math.PI / 180;
+  const cosE = Math.cos(obliquity), sinE = Math.sin(obliquity);
+  const entries = [];
+  for (let i = 2; i < lines.length; i++) {
+    const parts = lines[i].trim().split(/\s+/);
+    if (parts.length < 7) continue;
+    const epochSec = parseFloat(parts[0]);
+    if (isNaN(epochSec) || epochSec < 1000) continue;
+    const date = new Date(yearStart.getTime() + epochSec * 1000);
+    const t = (date - LAUNCH_UTC) / 3600000;
+    // Convert feet → km, fps → km/s
+    const xEq = parseFloat(parts[1]) * FT_TO_KM;
+    const yEq = parseFloat(parts[2]) * FT_TO_KM;
+    const zEq = parseFloat(parts[3]) * FT_TO_KM;
+    const vxEq = parseFloat(parts[4]) * FPS_TO_KMS;
+    const vyEq = parseFloat(parts[5]) * FPS_TO_KMS;
+    const vzEq = parseFloat(parts[6]) * FPS_TO_KMS;
+    // Rotate equatorial → ecliptic (same as OEM)
+    entries.push({
+      t,
+      x: xEq, y: yEq * cosE + zEq * sinE, z: -yEq * sinE + zEq * cosE,
+      vx: vxEq, vy: vyEq * cosE + vzEq * sinE, vz: -vyEq * sinE + vzEq * cosE,
+    });
+  }
+  const creation = year ? `${year} PROP_MAN` : null;
+  console.log(`PROP_MAN parsed: ${entries.length} pts, t=${entries[0]?.t?.toFixed(2)} to ${entries[entries.length-1]?.t?.toFixed(2)}`);
+  return { creation, entries };
+}
+
 async function fetchAROW() {
   try {
     // Step 1: Scrape NASA page for latest OEM ZIP URL (needs CORS proxy)
     const pageResp = await fetch('https://corsproxy.io/?' + encodeURIComponent(AROW_PAGE));
     const pageHtml = await pageResp.text();
-    const zipMatch = pageHtml.match(/href="([^"]*artemis-ii-oem[^"]*\.zip[^"]*)"/i);
+    const zipMatch = pageHtml.match(/href="(https:\/\/www\.nasa\.gov\/wp-content\/uploads\/[^"]*\.zip[^"]*)"/i);
     if (!zipMatch) { console.warn('AROW: no OEM ZIP link found on page'); return false; }
     const zipUrl = zipMatch[1];
 
@@ -794,8 +899,9 @@ async function fetchAROW() {
 
     // Step 3: Unzip with JSZip
     const zip = await JSZip.loadAsync(zipBuf);
-    const ascName = Object.keys(zip.files).find(f => f.endsWith('.asc'));
-    if (!ascName) throw new Error('No .asc file in ZIP');
+    const zipFiles = Object.keys(zip.files).filter(f => !zip.files[f].dir);
+    const ascName = zipFiles.find(f => f.endsWith('.asc')) || zipFiles[0];
+    if (!ascName) throw new Error('No files in ZIP');
     const oemText = await zip.files[ascName].async('string');
 
     // Step 4: Parse OEM
@@ -899,15 +1005,23 @@ async function applyTrajectoryData(entries) {
 
 function anchorTrajectory() {
   // Prepend precomputed launch trajectory (LEO→HEO→TLI, t=0 to ~3.5h)
-  // Uses only points before the first Horizons data point
   const firstT = WAYPOINTS[0].t;
   const launchPts = PRECOMPUTED_LAUNCH.filter(p => p.t < firstT);
   WAYPOINTS = launchPts.concat(WAYPOINTS);
 
-  // Append precomputed reentry trajectory to splashdown off San Diego
-  const lastT = WAYPOINTS[WAYPOINTS.length - 1].t;
-  const reentryPts = PRECOMPUTED_REENTRY.filter(p => p.t > lastT);
-  WAYPOINTS = WAYPOINTS.concat(reentryPts);
+  // Fill any gaps in trajectory and extend to splashdown
+  computeGapFill();
+  if (PRECOMPUTED_REENTRY.length > 0) {
+    // Merge gap-fill points into waypoints, avoiding duplicates
+    WAYPOINTS = WAYPOINTS.concat(PRECOMPUTED_REENTRY);
+    WAYPOINTS.sort((a, b) => a.t - b.t);
+    // Deduplicate: keep points at least 10s apart
+    const deduped = [WAYPOINTS[0]];
+    for (let i = 1; i < WAYPOINTS.length; i++) {
+      if (WAYPOINTS[i].t - deduped[deduped.length-1].t > 0.003) deduped.push(WAYPOINTS[i]);
+    }
+    WAYPOINTS = deduped;
+  }
 }
 
 async function fetchFullTrajectoryRetry() {
