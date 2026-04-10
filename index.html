@@ -1212,17 +1212,37 @@ function getMissionState() {
   if (!speedKms) {
     if (horizonsTrajectory?.length > 1) {
       // Interpolate velocity between two nearest Horizons points
-      let i = 0;
+      let i = -1;
       for (let j = 0; j < horizonsTrajectory.length - 1; j++) {
         if (metHours >= horizonsTrajectory[j].t && metHours <= horizonsTrajectory[j+1].t) { i = j; break; }
       }
-      const a = horizonsTrajectory[i], b = horizonsTrajectory[Math.min(i+1, horizonsTrajectory.length-1)];
-      if (a.vx !== undefined && b.vx !== undefined) {
-        const frac = (b.t - a.t) > 0 ? (metHours - a.t) / (b.t - a.t) : 0;
-        const vx = a.vx + (b.vx - a.vx) * frac;
-        const vy = a.vy + (b.vy - a.vy) * frac;
-        const vz = a.vz + (b.vz - a.vz) * frac;
-        speedKms = Math.sqrt(vx*vx + vy*vy + vz*vz);
+      if (i === -1) {
+        // Past end or before start — use nearest endpoint velocity
+        if (metHours >= horizonsTrajectory[horizonsTrajectory.length-1].t) {
+          // Past end: use last known velocity, then estimate speed increase from 2-body gravity
+          const last = horizonsTrajectory[horizonsTrajectory.length-1];
+          if (last.vx !== undefined) {
+            const lastSpeed = Math.sqrt(last.vx*last.vx + last.vy*last.vy + last.vz*last.vz);
+            // Approximate speed gain from Earth gravity: v² = v0² + 2*GM/r - 2*GM/r0
+            const r0 = Math.sqrt(last.x*last.x + last.y*last.y + last.z*last.z);
+            const r = pos.length();
+            const GM = 398600.4418; // km³/s²
+            const v2 = lastSpeed*lastSpeed + 2*GM*(1/Math.max(r,6500) - 1/Math.max(r0,6500));
+            speedKms = v2 > 0 ? Math.sqrt(v2) : lastSpeed;
+          }
+        } else {
+          const first = horizonsTrajectory[0];
+          if (first.vx !== undefined) speedKms = Math.sqrt(first.vx*first.vx + first.vy*first.vy + first.vz*first.vz);
+        }
+      } else {
+        const a = horizonsTrajectory[i], b = horizonsTrajectory[i+1];
+        if (a.vx !== undefined && b.vx !== undefined) {
+          const frac = (b.t - a.t) > 0 ? Math.min(1, Math.max(0, (metHours - a.t) / (b.t - a.t))) : 0;
+          const vx = a.vx + (b.vx - a.vx) * frac;
+          const vy = a.vy + (b.vy - a.vy) * frac;
+          const vz = a.vz + (b.vz - a.vz) * frac;
+          speedKms = Math.sqrt(vx*vx + vy*vy + vz*vz);
+        }
       }
     }
     if (!speedKms) speedKms = getVelocity(metHours, pos, mPos);
